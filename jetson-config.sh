@@ -14,8 +14,9 @@
 set -euo pipefail
 
 CONFIG_DIR="/home/claude/jetson-configs"
-HOMESERVER_BACKUP="claude@homeserver.k4jda.net:/mnt/user/appdata/jetson-configs"
-SSH_KEY="/home/claude/.ssh/id_claude_code"
+# Set HOMESERVER_BACKUP to your backup destination, e.g.: user@host:/path/to/jetson-configs
+HOMESERVER_BACKUP="${JETSON_BACKUP_DEST:?Set JETSON_BACKUP_DEST environment variable}"
+SSH_KEY="${JETSON_SSH_KEY:-$HOME/.ssh/id_ed25519}"
 LLM_SERVER_DIR="/home/claude/llm-server"
 
 # Colors

@@ -9,10 +9,10 @@ This repo manages the configuration, scripts, and documentation for an NVIDIA Je
 ## Jetson Access
 
 ```bash
-ssh -i ~/.ssh/id_claude_code claude@jetson.k4jda.net
+ssh claude@<jetson-tailscale-ip>
 ```
 
-Tailscale IP: `100.106.252.90`. The device is always-on and accessible via Tailscale mesh network. The LLM server runs under the `claude` user. The `davistroy` user still exists but is no longer used for server operations.
+The device is always-on and accessible via Tailscale mesh network. The LLM server runs under the `claude` user.
 
 ## What This Repo Manages
 
@@ -38,7 +38,7 @@ Tailscale IP: `100.106.252.90`. The device is always-on and accessible via Tails
 ## Common Operations
 
 ```bash
-SSH="ssh -i ~/.ssh/id_claude_code claude@jetson.k4jda.net"
+SSH="ssh claude@<jetson-tailscale-ip>"
 
 # Check server status
 $SSH "systemctl status myscript"
@@ -90,6 +90,6 @@ The device uses Jetson unified memory (CPU and GPU share 7.4 GB LPDDR5). The sta
 
 - **8 GB unified RAM** — model + KV cache + OS must all fit. Q4_K_M quants of 4B-parameter models are the sweet spot. 7B models work but leave little headroom.
 - **No discrete GPU memory** — `nvidia-smi` memory reporting is limited; use `free -h` and `jtop` for real memory visibility.
-- **NVMe is the boot drive** — the system was migrated from eMMC to NVMe SSD. Scripts for this are in `/home/davistroy/migrate-jetson-to-ssd/`.
+- **NVMe is the boot drive** — the system was migrated from eMMC to NVMe SSD.
 - **Systemd manages everything** — the `myscript.service` unit auto-restarts the server on crash or reboot. Always update the service file and `daemon-reload` for persistent changes.
 - **`render` group required for CUDA** — the `claude` user needs access to `/dev/dri/renderD128`. The systemd unit includes `SupplementaryGroups=render` to handle this.

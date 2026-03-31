@@ -1,9 +1,8 @@
 # Jetson Orin Nano Super — Full Configuration Reference
 
 **Last updated:** 2026-03-30
-**Hostname:** `jetson.k4jda.net` (Tailscale: `100.106.252.90`)
+**Access:** Via Tailscale mesh network (always-on)
 **Service user:** `claude` (LLM server and all managed services)
-**Admin user:** `davistroy` (interactive login, original setup)
 
 This document describes the complete configuration of the Jetson device in enough detail to recreate it from a fresh JetPack install.
 
@@ -20,7 +19,7 @@ This document describes the complete configuration of the Jetson device in enoug
 | **RAM** | 7.4 GB LPDDR5 unified memory (CPU and GPU share) |
 | **Storage** | 824 GB NVMe SSD (boot drive, migrated from eMMC) |
 | **Swap** | 16 GB file-based (`/ssd/16GB.swap`) |
-| **WiFi** | Realtek adapter (`wlP1p1s0`) — `192.168.10.59/24` |
+| **WiFi** | Realtek adapter (`wlP1p1s0`) — DHCP on primary LAN |
 | **Power Mode** | MAXN_SUPER |
 
 ---
@@ -54,23 +53,12 @@ export CUDACXX=$CUDA_HOME/bin/nvcc
 
 ## Network Access
 
-```bash
-# Claude Code (automated operations)
-ssh -i ~/.ssh/id_claude_code claude@jetson.k4jda.net
+The device is always-on, accessible via Tailscale mesh network. SSH access uses key-based authentication.
 
-# Interactive login
-ssh davistroy@jetson.k4jda.net
-
-# By Tailscale IP
-ssh -i ~/.ssh/id_claude_code claude@100.106.252.90
-```
-
-The device is always-on, accessible via Tailscale mesh network.
-
-| Interface | Address | Notes |
-|-----------|---------|-------|
-| WiFi (`wlP1p1s0`) | `192.168.10.59/24` | Primary LAN |
-| Tailscale (`tailscale0`) | `100.106.252.90/32` | VPN mesh |
+| Interface | Notes |
+|-----------|-------|
+| WiFi (`wlP1p1s0`) | DHCP on primary LAN |
+| Tailscale (`tailscale0`) | VPN mesh (private IP) |
 
 ---
 
@@ -176,7 +164,7 @@ The entry point `start-server.sh` reads `/home/claude/llm-server/mode.txt` and d
 
 To switch modes:
 ```bash
-ssh -i ~/.ssh/id_claude_code claude@jetson.k4jda.net "echo embedding > ~/llm-server/mode.txt && kill \$(pgrep -f llama-server)"
+ssh claude@<jetson-tailscale-ip> "echo embedding > ~/llm-server/mode.txt && kill \$(pgrep -f llama-server)"
 # systemd auto-restarts within 5 seconds with new mode
 ```
 
@@ -201,7 +189,7 @@ Each startup script includes a Python memory eviction trick that allocates and t
 ## Common Operations
 
 ```bash
-SSH="ssh -i ~/.ssh/id_claude_code claude@jetson.k4jda.net"
+SSH="ssh claude@<jetson-tailscale-ip>"
 
 # Check server status
 $SSH "systemctl status myscript"
@@ -248,7 +236,7 @@ All paths below are relative to the `claude` user (`/home/claude/`):
 | `~/llm-server/start-nemotron-server.sh` | Nemotron chat server config |
 | `~/llm-server/start-embedding-server.sh` | Embedding server config |
 | `/etc/systemd/system/myscript.service` | Systemd unit file |
-| `/home/davistroy/migrate-jetson-to-ssd/` | NVMe migration scripts (from initial setup) |
+| `~/migrate-jetson-to-ssd/` | NVMe migration scripts (from initial setup, admin user home) |
 
 ---
 
@@ -261,7 +249,7 @@ All paths below are relative to the `claude` user (`/home/claude/`):
 | jtop | v4.3.2 — Jetson system monitor |
 | btop | Installed (`~/btop/`) |
 | NVM | Installed (Node v24.13.1) |
-| Tailscale | Active, connected to `troy.davis@` tailnet |
+| Tailscale | Active, connected to private tailnet |
 
 ---
 
@@ -297,7 +285,7 @@ All paths below are relative to the `claude` user (`/home/claude/`):
 ## Constraints & Gotchas
 
 - **8 GB unified RAM** — model + KV cache + OS must all fit. The memory eviction script is critical for reliable GPU offload on boot.
-- **`claude` user has limited NOPASSWD sudo** — includes `systemctl`, `docker`, `cp`, `mv`, `rm`, `mkdir`, `chmod`, `chown`, `nvidia-smi`, `apt`, `dpkg`, `tee`, `reboot`, but NOT `cat`, `ls`, `usermod`, or general commands. Use `kill $(pgrep -f llama-server)` for quick restarts or `sudo systemctl restart myscript` for full restarts.
+- **`claude` user has limited NOPASSWD sudo** for operational commands only (service management, GPU access, package management). Use `kill $(pgrep -f llama-server)` for quick restarts or `sudo systemctl restart myscript` for full restarts.
 - **CUDA VMM must be ON** — `GGML_CUDA_NO_VMM=ON` causes allocation failures on Jetson's unified memory architecture. Always build with the default (VMM enabled).
 - **CMAKE_CUDA_ARCHITECTURES must be 87** — Orin's exact compute capability. Building without it causes PTX JIT fallback.
 - **NVMe is the boot drive** — migrated from eMMC. Migration scripts preserved in `~/migrate-jetson-to-ssd/`.
