@@ -513,3 +513,68 @@ Memory grew smoothly and linearly over 77 seconds. No spikes, no thrashing, no s
 5. **Swap behavior is a non-issue.** The SSD swap file exists as insurance but never activates during inference. All observed swap usage is zram (compressed RAM) for OS background processes.
 
 ---
+
+## Entry 007: Gemma 4 A/B Test Planning & Inference Engine Assessment (2026-04-03)
+
+### Objective
+
+Evaluate Google's Gemma 4 model family (released 2026-04-02, Apache 2.0) as a potential replacement or alternative to Qwen3.5-4B Q4_K_M on this device. Assess both the models and whether an alternative inference engine (vLLM) should be tested.
+
+### Gemma 4 Model Assessment
+
+Gemma 4 uses Per-Layer Embeddings (PLE) — each decoder layer has its own embedding table, inflating total parameter count but improving inference efficiency. Two variants fit our memory envelope:
+
+| Model | Total Params | Effective Params | Q4_K_M Size | 128K Context | Jetson Fit |
+|-------|-------------|-----------------|-------------|--------------|-----------|
+| **Gemma 4 E2B** | 5.1B | 2.3B | 3.11 GB | Yes | Good — ~4.3 GB headroom |
+| **Gemma 4 E4B** | 8.0B | 4.5B | 4.98 GB | Yes | Marginal — ~2.4 GB headroom |
+
+Key architectural differences vs Qwen3.5-4B: hybrid attention (local sliding window 512 + global), proportional RoPE, 262K vocab (vs ~152K), native function calling tokens, configurable `<|think|>` reasoning mode, multimodal (text + image + audio).
+
+**Benchmark highlights (Google's numbers):** E4B scores 69.4% MMLU Pro (competitive with Qwen3.5-4B), 42.5% AIME 2026 (vs Gemma 3 27B's 20.8%), 52.0% LiveCodeBench v6 (vs 29.1%). Strong reasoning and coding improvements at the 4B-class size.
+
+### vLLM Assessment: Not Viable
+
+**Verdict: Ruled out for this device.** vLLM was thoroughly evaluated and cannot work on Jetson Orin Nano 8GB:
+
+- **Runtime overhead:** PyTorch + CUDA context + vLLM framework consumes 2-4 GB before loading any model. On 7.4 GB unified memory, this leaves 3.5-4.5 GB for model + KV cache + OS — insufficient for practical 4B-class inference.
+- **Unified memory bugs:** vLLM's memory profiler assumes discrete VRAM. Pre-allocates 90% of "GPU memory" which on unified memory = total system RAM, starving the OS. Issues [vllm #13131](https://github.com/vllm-project/vllm/issues/13131) and [vllm #10267](https://github.com/vllm-project/vllm/issues/10267) are both closed "not planned" upstream.
+- **No successful 8GB deployments exist:** [jetson-containers #1568](https://github.com/dusty-nv/jetson-containers/issues/1568) — even a 125M toy model crashed during KV cache allocation with `NVML_SUCCESS == r INTERNAL ASSERT FAILED`.
+- **NVIDIA's own guidance:** The [practical guide for Orin Nano Super 8GB](https://forums.developer.nvidia.com/t/ai-models-that-run-on-jetson-orin-nano-super-8gb-a-practical-guide/365412) recommends llama.cpp and TensorRT-Edge-LLM only. Does not mention vLLM as viable.
+
+vLLM becomes relevant at AGX Orin 32/64 GB where the overhead is a small fraction of available memory. **All experiments continue with llama.cpp.**
+
+### Jetson Community Context (NVIDIA Forums)
+
+Two forum threads document Gemma experiences on Orin Nano Super:
+
+- **Throttling ([thread](https://forums.developer.nvidia.com/t/jetson-orin-nano-super-developer-kit-throttles-on-gemma-3-4b/353323)):** Over-current throttling running Gemma 3 4B via Ollama at 25W, despite GPU <48°C. NVIDIA confirmed this is a normal protection mechanism — lowers clock frequency, not a failure. Relevant for thermal monitoring in our experiments.
+- **Container errors ([thread](https://forums.developer.nvidia.com/t/jetson-orin-nano-super-error-running-gemma-3-4b-model/327944)):** Docker/nvidia-container-toolkit issues with Ollama. Not relevant to our native llama.cpp setup.
+
+### Blocking Issue
+
+**llama-server infinite repetition bug ([llama.cpp #21365](https://github.com/ggerganov/llama.cpp/issues/21365)):** Gemma 4 produces infinite repetition in `llama-server` but works correctly in `llama-cli`. Our deployment is llama-server via systemd. This is a showstopper — must be resolved before any experiments can proceed.
+
+Additional bugs: `--parallel` crash ([#21329](https://github.com/ggerganov/llama.cpp/issues/21329)), tool-call parser loop ([#21375](https://github.com/ggerganov/llama.cpp/issues/21375)), `<unused24>` token generation ([#21321](https://github.com/ggerganov/llama.cpp/issues/21321)).
+
+### Experiment Plan
+
+Full plan documented in **EXPERIMENT_PLAN_gemma4.md**. Summary:
+
+| Experiment | Model | Gate | Focus |
+|-----------|-------|------|-------|
+| **7** | E2B Q4_K_M (3.11 GB) | llama.cpp bug fix + rebuild | Full evaluation: throughput, memory, context sweep, quality, reasoning, thermal |
+| **8** | E4B Q4_K_M (4.98 GB) | Exp 7 success | Memory feasibility first, then throughput + quality if it fits |
+| **9** | Winner from 7/8 | Exp 7 or 8 success | Thinking mode cost/benefit analysis |
+
+Prerequisites before any testing: rebuild llama.cpp (need b8641+ for Gemma 4 arch), regression test Qwen3.5-4B on new build, download models.
+
+### Status
+
+**BLOCKED** on llama.cpp #21365. Monitoring daily.
+
+### Decision
+
+No changes to current configuration. Qwen3.5-4B Q4_K_M remains the active default.
+
+---
