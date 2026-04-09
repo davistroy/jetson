@@ -553,9 +553,9 @@ Two forum threads document Gemma experiences on Orin Nano Super:
 
 ### Blocking Issue
 
-**llama-server infinite repetition bug ([llama.cpp #21365](https://github.com/ggerganov/llama.cpp/issues/21365)):** Gemma 4 produces infinite repetition in `llama-server` but works correctly in `llama-cli`. Our deployment is llama-server via systemd. This is a showstopper — must be resolved before any experiments can proceed.
+**llama-server infinite repetition bug ([llama.cpp #21365](https://github.com/ggml-org/llama.cpp/issues/21365)):** ~~Gemma 4 produces infinite repetition in `llama-server` but works correctly in `llama-cli`.~~ **RESOLVED (2026-04-09):** PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) (merged 2026-04-04) introduces a dedicated Gemma 4 PEG parser, adds `<|tool_response>` as an EOG token, and removes Gemma 4 from the generic autoparser. Multiple users confirmed the fix resolves the infinite repetition in llama-server. Fix is included in build **b8721** (released 2026-04-09). Issue #21365 remains formally open but the bug is resolved in practice.
 
-Additional bugs: `--parallel` crash ([#21329](https://github.com/ggerganov/llama.cpp/issues/21329)), tool-call parser loop ([#21375](https://github.com/ggerganov/llama.cpp/issues/21375)), `<unused24>` token generation ([#21321](https://github.com/ggerganov/llama.cpp/issues/21321)).
+Additional bugs status (2026-04-09): `--parallel` crash ([#21329](https://github.com/ggml-org/llama.cpp/issues/21329)) — status unknown; tool-call parser loop ([#21375](https://github.com/ggml-org/llama.cpp/issues/21375)) — confirmed fixed by PR #21418 per user reports; `<unused24>` token generation ([#21321](https://github.com/ggml-org/llama.cpp/issues/21321)) — likely fixed by tokenizer PR #21343.
 
 ### Experiment Plan
 
@@ -571,10 +571,10 @@ Prerequisites before any testing: rebuild llama.cpp (need b8641+ for Gemma 4 arc
 
 ### Status
 
-**BLOCKED** on llama.cpp #21365. Monitoring daily.
+**UNBLOCKED** (2026-04-09) — PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) merged 2026-04-04, fixing the llama-server infinite repetition bug. Build b8721 (2026-04-09) is the latest and includes the fix. Next step: proceed to P2 (rebuild llama.cpp to b8721+), then P3 regression test, then P4 model downloads.
 
 ### Decision
 
-No changes to current configuration. Qwen3.5-4B Q4_K_M remains the active default.
+No changes to current configuration yet. Qwen3.5-4B Q4_K_M remains the active default pending the rebuild and Gemma 4 experiments.
 
 ---

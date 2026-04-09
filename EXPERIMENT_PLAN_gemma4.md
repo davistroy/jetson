@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-03
 **Author:** Troy Davis
-**Status:** BLOCKED — see Prerequisites
+**Status:** UNBLOCKED (2026-04-09) — P1 blocker resolved, proceed to P2
 **Hardware:** NVIDIA Jetson Orin Nano Super 8GB (Orin SoC, Ampere GA10B sm_87, 7.4 GB LPDDR5 unified)
 **Current champion:** Qwen3.5-4B Q4_K_M — 2.6 GB model, 14.0 tok/s, 32K context, stable
 **Reference:** LAB_NOTEBOOK.md entries 001-006, JETSON_CONFIG.md
@@ -71,22 +71,22 @@ Two NVIDIA forum threads document Gemma experiences on Orin Nano Super:
 
 ## Prerequisites (Must Clear Before Experiments Begin)
 
-### P1: llama-server Infinite Repetition Bug — BLOCKER
+### P1: llama-server Infinite Repetition Bug — RESOLVED ✓
 
-**GitHub issue:** [llama.cpp #21365](https://github.com/ggerganov/llama.cpp/issues/21365)
+**GitHub issue:** [llama.cpp #21365](https://github.com/ggml-org/llama.cpp/issues/21365) (open but resolved in practice)
 
-Gemma 4 models produce infinite repetition when served via `llama-server` but work correctly in `llama-cli`. Our Jetson runs llama-server via systemd. This is a **showstopper** for server deployment.
+**RESOLVED 2026-04-09:** PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) (merged 2026-04-04) introduces a dedicated Gemma 4 PEG parser and adds `<|tool_response>` as an EOG token, eliminating the infinite repetition in llama-server. Multiple users confirmed the fix. Included in build **b8721** (released 2026-04-09).
 
-**Additional known bugs (as of 2026-04-03):**
+**Known bugs status (as of 2026-04-09):**
 
-| Issue | Problem | Impact on Us |
-|-------|---------|-------------|
-| [#21365](https://github.com/ggerganov/llama.cpp/issues/21365) | Infinite repetition in llama-server | **Blocker** — our deployment is llama-server |
-| [#21329](https://github.com/ggerganov/llama.cpp/issues/21329) | `--parallel` crashes with Gemma 4 | Medium — we run single-slot |
-| [#21375](https://github.com/ggerganov/llama.cpp/issues/21375) | Infinite loop in tool-call parser | Medium — affects function calling tests |
-| [#21321](https://github.com/ggerganov/llama.cpp/issues/21321) | Generates `<unused24>` tokens | Low — may be fixed by tokenizer update |
+| Issue | Problem | Status |
+|-------|---------|--------|
+| [#21365](https://github.com/ggml-org/llama.cpp/issues/21365) | Infinite repetition in llama-server | **FIXED** by PR #21418 (b8721+) |
+| [#21329](https://github.com/ggml-org/llama.cpp/issues/21329) | `--parallel` crashes with Gemma 4 | Unknown — we run single-slot, low risk |
+| [#21375](https://github.com/ggml-org/llama.cpp/issues/21375) | Infinite loop in tool-call parser | **FIXED** by PR #21418 per user reports |
+| [#21321](https://github.com/ggml-org/llama.cpp/issues/21321) | Generates `<unused24>` tokens | Likely fixed by tokenizer PR #21343 |
 
-**Action:** Monitor #21365 daily. Do not download models or rebuild llama.cpp until this is confirmed fixed.
+**Action:** Proceed to P2. Target build b8721 or later.
 
 ### P2: Rebuild llama.cpp
 
@@ -358,10 +358,10 @@ After all experiments, score each viable configuration:
 ## Execution Sequence
 
 ```
-P1: Monitor llama.cpp #21365          ← CURRENT (check daily)
+P1: Monitor llama.cpp #21365          ← DONE (fixed in b8721, PR #21418)
     │
     ▼ (bug fixed)
-P2: Rebuild llama.cpp from master
+P2: Rebuild llama.cpp from master     ← CURRENT (target b8721+)
 P3: Regression test Qwen3.5-4B
 P4: Download Gemma 4 E2B Q4_K_M
     │
