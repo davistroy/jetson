@@ -571,7 +571,7 @@ Prerequisites before any testing: rebuild llama.cpp (need b8641+ for Gemma 4 arc
 
 ### Status
 
-**UNBLOCKED** (2026-04-09) — PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) merged 2026-04-04, fixing the llama-server infinite repetition bug. Build b8721 (2026-04-09) is the latest and includes the fix. Next step: proceed to P2 (rebuild llama.cpp to b8721+), then P3 regression test, then P4 model downloads.
+**UNBLOCKED** (2026-04-09) — PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) merged 2026-04-04, fixing the llama-server infinite repetition bug. Fix first included in build b8721 (2026-04-09). Latest release as of 2026-04-21: **b8864**. Next step: proceed to P2 (rebuild llama.cpp to b8864+), then P3 regression test, then P4 model downloads.
 
 ### Decision
 

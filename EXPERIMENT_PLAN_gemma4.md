@@ -86,7 +86,7 @@ Two NVIDIA forum threads document Gemma experiences on Orin Nano Super:
 | [#21375](https://github.com/ggml-org/llama.cpp/issues/21375) | Infinite loop in tool-call parser | **FIXED** by PR #21418 per user reports |
 | [#21321](https://github.com/ggml-org/llama.cpp/issues/21321) | Generates `<unused24>` tokens | Likely fixed by tokenizer PR #21343 |
 
-**Action:** Proceed to P2. Target build b8721 or later.
+**Action:** Proceed to P2. Target build b8864 or later (latest as of 2026-04-21).
 
 ### P2: Rebuild llama.cpp
 
@@ -361,7 +361,7 @@ After all experiments, score each viable configuration:
 P1: Monitor llama.cpp #21365          ← DONE (fixed in b8721, PR #21418)
     │
     ▼ (bug fixed)
-P2: Rebuild llama.cpp from master     ← CURRENT (target b8721+)
+P2: Rebuild llama.cpp from master     ← CURRENT (target b8864+, latest 2026-04-21)
 P3: Regression test Qwen3.5-4B
 P4: Download Gemma 4 E2B Q4_K_M
     │
