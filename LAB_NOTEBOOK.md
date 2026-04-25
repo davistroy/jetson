@@ -555,7 +555,7 @@ Two forum threads document Gemma experiences on Orin Nano Super:
 
 **llama-server infinite repetition bug ([llama.cpp #21365](https://github.com/ggml-org/llama.cpp/issues/21365)):** ~~Gemma 4 produces infinite repetition in `llama-server` but works correctly in `llama-cli`.~~ **RESOLVED (2026-04-09):** PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) (merged 2026-04-04) introduces a dedicated Gemma 4 PEG parser, adds `<|tool_response>` as an EOG token, and removes Gemma 4 from the generic autoparser. Multiple users confirmed the fix resolves the infinite repetition in llama-server. Fix is included in build **b8721** (released 2026-04-09). Issue #21365 remains formally open but the bug is resolved in practice.
 
-Additional bugs status (2026-04-09): `--parallel` crash ([#21329](https://github.com/ggml-org/llama.cpp/issues/21329)) — status unknown; tool-call parser loop ([#21375](https://github.com/ggml-org/llama.cpp/issues/21375)) — confirmed fixed by PR #21418 per user reports; `<unused24>` token generation ([#21321](https://github.com/ggml-org/llama.cpp/issues/21321)) — likely fixed by tokenizer PR #21343.
+Additional bugs status (2026-04-25): `--parallel` crash ([#21329](https://github.com/ggml-org/llama.cpp/issues/21329)) — **CLOSED**; tool-call parser loop ([#21375](https://github.com/ggml-org/llama.cpp/issues/21375)) — still open (tool-call edge cases ongoing; PR [#21760](https://github.com/ggml-org/llama.cpp/pull/21760) merged 2026-04-13 adds further parser edge-case handling for channel tokens and tool calls); `<unused24>` token generation ([#21321](https://github.com/ggml-org/llama.cpp/issues/21321)) — **CLOSED**.
 
 ### Experiment Plan
 
@@ -571,7 +571,7 @@ Prerequisites before any testing: rebuild llama.cpp (need b8641+ for Gemma 4 arc
 
 ### Status
 
-**UNBLOCKED** (2026-04-09) — PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) merged 2026-04-04, fixing the llama-server infinite repetition bug. Fix first included in build b8721 (2026-04-09). Latest release as of 2026-04-21: **b8864**. Next step: proceed to P2 (rebuild llama.cpp to b8864+), then P3 regression test, then P4 model downloads.
+**UNBLOCKED** (2026-04-09) — PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) merged 2026-04-04, fixing the llama-server infinite repetition bug. Fix first included in build b8721 (2026-04-09). Additional parser edge-case fixes in PR [#21760](https://github.com/ggml-org/llama.cpp/pull/21760) (merged 2026-04-13). Latest release as of 2026-04-25: **b8925**. Next step: proceed to P2 (rebuild llama.cpp to b8925+), then P3 regression test, then P4 model downloads.
 
 ### Decision
 

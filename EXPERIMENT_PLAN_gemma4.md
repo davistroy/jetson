@@ -77,16 +77,16 @@ Two NVIDIA forum threads document Gemma experiences on Orin Nano Super:
 
 **RESOLVED 2026-04-09:** PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) (merged 2026-04-04) introduces a dedicated Gemma 4 PEG parser and adds `<|tool_response>` as an EOG token, eliminating the infinite repetition in llama-server. Multiple users confirmed the fix. Included in build **b8721** (released 2026-04-09).
 
-**Known bugs status (as of 2026-04-09):**
+**Known bugs status (as of 2026-04-25):**
 
 | Issue | Problem | Status |
 |-------|---------|--------|
-| [#21365](https://github.com/ggml-org/llama.cpp/issues/21365) | Infinite repetition in llama-server | **FIXED** by PR #21418 (b8721+) |
-| [#21329](https://github.com/ggml-org/llama.cpp/issues/21329) | `--parallel` crashes with Gemma 4 | Unknown — we run single-slot, low risk |
-| [#21375](https://github.com/ggml-org/llama.cpp/issues/21375) | Infinite loop in tool-call parser | **FIXED** by PR #21418 per user reports |
-| [#21321](https://github.com/ggml-org/llama.cpp/issues/21321) | Generates `<unused24>` tokens | Likely fixed by tokenizer PR #21343 |
+| [#21365](https://github.com/ggml-org/llama.cpp/issues/21365) | Infinite repetition in llama-server | **FIXED** by PR #21418 (b8721+); issue still formally open |
+| [#21329](https://github.com/ggml-org/llama.cpp/issues/21329) | `--parallel` crashes with Gemma 4 | **CLOSED** — we run single-slot anyway |
+| [#21375](https://github.com/ggml-org/llama.cpp/issues/21375) | Infinite loop in tool-call parser | Still open; PR [#21760](https://github.com/ggml-org/llama.cpp/pull/21760) (merged 2026-04-13) adds edge-case handling |
+| [#21321](https://github.com/ggml-org/llama.cpp/issues/21321) | Generates `<unused24>` tokens | **CLOSED** |
 
-**Action:** Proceed to P2. Target build b8864 or later (latest as of 2026-04-21).
+**Action:** Proceed to P2. Target build b8925 or later (latest as of 2026-04-25).
 
 ### P2: Rebuild llama.cpp
 
@@ -361,7 +361,7 @@ After all experiments, score each viable configuration:
 P1: Monitor llama.cpp #21365          ← DONE (fixed in b8721, PR #21418)
     │
     ▼ (bug fixed)
-P2: Rebuild llama.cpp from master     ← CURRENT (target b8864+, latest 2026-04-21)
+P2: Rebuild llama.cpp from master     ← CURRENT (target b8925+, latest 2026-04-25)
 P3: Regression test Qwen3.5-4B
 P4: Download Gemma 4 E2B Q4_K_M
     │
