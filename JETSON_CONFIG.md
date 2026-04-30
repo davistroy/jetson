@@ -1,6 +1,6 @@
 # Jetson Orin Nano Super — Full Configuration Reference
 
-**Last updated:** 2026-03-30
+**Last updated:** 2026-04-30
 **Access:** Via Tailscale mesh network (always-on)
 **Service user:** `claude` (LLM server and all managed services)
 
@@ -67,20 +67,23 @@ The device is always-on, accessible via Tailscale mesh network. SSH access uses 
 | Setting | Value |
 |---------|-------|
 | Source | https://github.com/ggerganov/llama.cpp |
-| Commit | `5744d7ec4` (build 8414) — detached HEAD |
+| Commit | `5f0ab726f` (build b8987) — detached HEAD |
 | Path | `~/llm-server/llama.cpp/` |
 | Binary | `~/llm-server/llama.cpp/build/bin/llama-server` |
+| Previous | `547765a93` (build b8766) — backup at `~/llm-server/backup-b8766/` |
 
 ### Build Commands
 
 ```bash
 cd ~/llm-server/llama.cpp
-git checkout 5744d7ec4
+git checkout b8987
 
 PATH=/usr/local/cuda/bin:$PATH cmake -B build \
     -DGGML_CUDA=ON \
     -DCMAKE_CUDA_ARCHITECTURES=87 \
     -DGGML_CUDA_F16=ON \
+    -DGGML_CUDA_FA_ALL_QUANTS=ON \
+    -DGGML_NATIVE=ON \
     -DCMAKE_BUILD_TYPE=Release
 
 PATH=/usr/local/cuda/bin:$PATH cmake --build build --config Release -j4
@@ -95,7 +98,10 @@ Build takes ~20-30 minutes on the Jetson (CUDA kernel compilation is slow on ARM
 | `CMAKE_CUDA_ARCHITECTURES` | **87** | Orin's exact compute capability. Other archs waste compile time; GPU falls back to PTX JIT. |
 | `GGML_CUDA_NO_VMM` | **OFF (default)** | Must stay OFF. Jetson unified memory requires CUDA VMM. Setting ON causes cudaMalloc failures. |
 | `GGML_CUDA_F16` | **ON** | Enables native FP16 arithmetic, reduces memory bandwidth pressure. |
+| `GGML_CUDA_FA_ALL_QUANTS` | **ON** | Compiles FA kernels for all KV cache quant types. Enables `--cache-type-k q8_0`. |
+| `GGML_NATIVE` | **ON** | CPU-native optimizations for aarch64 Cortex-A78AE. |
 | `PATH` | Must include `/usr/local/cuda/bin` | nvcc not in default PATH on Jetson. |
+| `CUDA_SCALE_LAUNCH_QUEUES` | **Do NOT set** | Causes MoE deadlock on Jetson unified memory (issue #19219). |
 
 ---
 
@@ -112,6 +118,7 @@ All models stored in `/home/claude/llm-server/models/` (~34 GB total):
 | Qwen3-Embedding-4B | `Qwen3-Embedding-4B-Q6_K.gguf` | 3.1 GB | Q6_K | Embeddings (higher quality) |
 | Qwen3-Embedding-0.6B | `Qwen3-Embedding-0.6B-Q8_0.gguf` | 610 MB | Q8_0 | Embeddings (lightweight) |
 | Qwen3-4B | `Qwen_Qwen3-4B-Q5_K_M.gguf` | 2.7 GB | Q5_K_M | Chat |
+| Qwen3.5-4B-Claude-Distilled-v2 | `Qwen3.5-4B-Claude-Distilled-v2-Q4_K_M.gguf` | 2.6 GB | Q4_K_M | ARCHIVED — reasoning loop bug, delete after 2026-05-30 |
 | Qwen2.5-3B-Instruct | `qwen2.5-3b-instruct-q4_k_m.gguf` | 2.0 GB | Q4_K_M | Chat (legacy mode) |
 | Qwen2.5-7B-Instruct | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | 4.4 GB | Q4_K_M | Chat (tight fit for GPU) |
 | Qwen2.5-7B-Instruct | `Qwen2.5-7B-Instruct-Q3_K_S.gguf` | 3.3 GB | Q3_K_S | Chat (smaller 7B quant) |
@@ -149,7 +156,7 @@ Environment=CUDA_HOME=/usr/local/cuda
 WantedBy=multi-user.target
 ```
 
-Auto-starts on boot, auto-restarts on crash (5-second delay). The `SupplementaryGroups=render` is required for CUDA access to `/dev/dri/renderD128`. The `LD_LIBRARY_PATH` is required because llama.cpp shared libraries (`libllama.so`, `libggml*.so`, `libmtmd.so`) are in the build output directory alongside the binary.
+Auto-starts on boot, auto-restarts on crash (5-second delay). The `SupplementaryGroups=render` is required for CUDA access to `/dev/dri/renderD128`. The `LD_LIBRARY_PATH` is required because llama.cpp shared libraries (`libllama.so`, `libllama-common.so`, `libggml*.so`, `libmtmd.so`) are in the build output directory alongside the binary.
 
 ### Mode Switching
 
@@ -160,6 +167,7 @@ The entry point `start-server.sh` reads `/home/claude/llm-server/mode.txt` and d
 | **`qwen35`** (default) | Qwen3.5-4B | 8080 | `start-qwen35-server.sh` |
 | `nemotron` | Nemotron-3-Nano-4B | 8080 | `start-nemotron-server.sh` |
 | `embedding` | Qwen3-Embedding-4B | 8081 | `start-embedding-server.sh` |
+| `experiment` | (configurable) | 8080 | `start-experiment.sh` |
 | `llm` | Qwen2.5-3B-Instruct | 8080 | `start-server.sh` (inline) |
 
 To switch modes:
@@ -178,7 +186,10 @@ ssh claude@<jetson-tailscale-ip> "echo embedding > ~/llm-server/mode.txt && kill
 | Reasoning | Disabled via `--reasoning off` |
 | Context | 32768 tokens (full model context) |
 | Flash attention | Enabled |
-| Performance | ~14 tok/s generation, ~440 tok/s prompt processing (at 32K fill) |
+| Threads | 1 (fewer threads reduces contention when fully GPU-offloaded) |
+| Memory lock | Enabled (`--mlock`) |
+| KV cache | Quantized q8_0 (keys and values) |
+| Performance | ~15.2–15.7 tok/s generation, ~156–166 tok/s prompt processing |
 
 ### Memory Eviction
 
@@ -235,6 +246,7 @@ All paths below are relative to the `claude` user (`/home/claude/`):
 | `~/llm-server/start-qwen35-server.sh` | Qwen3.5-4B chat server config |
 | `~/llm-server/start-nemotron-server.sh` | Nemotron chat server config |
 | `~/llm-server/start-embedding-server.sh` | Embedding server config |
+| `~/llm-server/start-experiment.sh` | A/B test experiment config |
 | `/etc/systemd/system/myscript.service` | Systemd unit file |
 | `~/migrate-jetson-to-ssd/` | NVMe migration scripts (from initial setup, admin user home) |
 
@@ -261,11 +273,11 @@ All paths below are relative to the `claude` user (`/home/claude/`):
 4. **Set up `.bashrc`** with CUDA environment variables (see above)
 5. **Create `claude` user** with SSH key auth and add to `render` group for CUDA access
 6. **Create `/home/claude/llm-server/` directory structure**
-7. **Clone llama.cpp** and checkout commit `5744d7ec4`:
+7. **Clone llama.cpp** and checkout commit `5f0ab726f`:
    ```bash
    cd ~/llm-server
    git clone https://github.com/ggerganov/llama.cpp.git
-   cd llama.cpp && git checkout 5744d7ec4
+   cd llama.cpp && git checkout 5f0ab726f
    ```
 8. **Build** with the cmake flags documented above
 9. **Download models** to `/home/claude/llm-server/models/` from Hugging Face
@@ -285,7 +297,7 @@ All paths below are relative to the `claude` user (`/home/claude/`):
 ## Constraints & Gotchas
 
 - **8 GB unified RAM** — model + KV cache + OS must all fit. The memory eviction script is critical for reliable GPU offload on boot.
-- **`claude` user has limited NOPASSWD sudo** for operational commands only (service management, GPU access, package management). Use `kill $(pgrep -f llama-server)` for quick restarts or `sudo systemctl restart myscript` for full restarts.
+- **`claude` user has limited NOPASSWD sudo** for operational commands only (service management, GPU access, package management, journalctl). Use `kill $(pgrep -f llama-server)` for quick restarts or `sudo systemctl restart myscript` for full restarts. Sudoers file: `/etc/sudoers.d/claude`. Note: `nvidia-smi` is at `/usr/sbin/nvidia-smi` (not `/usr/bin/`). The `claude` user is also in the `systemd-journal` group for direct journal access.
 - **CUDA VMM must be ON** — `GGML_CUDA_NO_VMM=ON` causes allocation failures on Jetson's unified memory architecture. Always build with the default (VMM enabled).
 - **CMAKE_CUDA_ARCHITECTURES must be 87** — Orin's exact compute capability. Building without it causes PTX JIT fallback.
 - **NVMe is the boot drive** — migrated from eMMC. Migration scripts preserved in `~/migrate-jetson-to-ssd/`.
