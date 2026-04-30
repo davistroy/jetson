@@ -2204,4 +2204,8 @@ The claimed "-33.8% think token reduction" is contradicted by testing. The model
 - Production remains Qwen3.5-4B-Q4_K_M (unchanged)
 - Remove from JETSON_BASELINE.md watch items
 
+### Pending Cleanup
+- **After 2026-05-14:** Delete `~/llm-server/backup-b8766/` (old llama.cpp binary backup, 2 weeks of stable b8987 operation confirmed)
+- **After 2026-05-30:** Delete `~/llm-server/models/Qwen3.5-4B-Claude-Distilled-v2-Q4_K_M.gguf` (archived failed fine-tune, 2.6 GB)
+
 ---
