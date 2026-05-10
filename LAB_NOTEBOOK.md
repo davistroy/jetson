@@ -2209,3 +2209,269 @@ The claimed "-33.8% think token reduction" is contradicted by testing. The model
 - **After 2026-05-30:** Delete `~/llm-server/models/Qwen3.5-4B-Claude-Distilled-v2-Q4_K_M.gguf` (archived failed fine-tune, 2.6 GB)
 
 ---
+
+## Entry 022: Jetson Recon (2026-05-09)
+**Date:** 2026-05-10 02:50 UTC
+**Operator:** Claude Code (jetson-recon skill)
+**Status:** RECON — no changes made
+**Days since last recon:** 9 (last: 2026-04-30, Entry 019)
+
+### Check 1 — JetPack / Firmware: NO MATCH (MEDIUM, status quo)
+- Latest production for Orin family: **JetPack 6.2.2 (R36.5.0)** — matches baseline.
+- JetPack 7.1 (Jan 2026) — Jetson Thor only, NOT Orin Nano.
+- **JetPack 7.2** — still **not released** as of 2026-05-09. Q2 2026 target window holds (Apr–Jun); forum activity suggests slip-or-imminent, no firm date.
+- Trigger `jetpack: JetPack 7.2 AND (Orin Nano OR Orin)` → **NO MATCH** (announced ≠ released).
+- Recommendation: hold on JP 6.2.2; re-check JP 7.2 in 2–4 weeks.
+
+### Check 2 — llama.cpp Releases: NO MATCH (LOW, skip rebuild)
+- Latest: **b9093** (`1e5ad35d5`, 2026-05-09T21:02 UTC). 106 builds since baseline b8987.
+- Jetson/SM87/Ampere/Tegra/aarch64/unified-memory/CUDA-graph keyword scan → **zero matches**.
+- CUDA work in this window targets multi-GPU/training (cuBLAS strided, PCI dedupe) or non-Qwen activations (snake fusion). Flash-attn changes touch MMA/Tiles for MiMo-V2.5 and Vulkan/SYCL — not CUDA SM87. KV cache fix is FP8 (we use q8_0).
+- No breaking changes that would block a drop-in rebuild; Python convert tooling moved to PEP 621/uv but C++ server unaffected.
+- Trigger `llamacpp_release: SM87 OR Jetson OR Tegra OR unified memory` → **NO MATCH**.
+- Recommendation: **skip rebuild.** Stay on b8987. Re-check in ~2 weeks or when a CUDA/flash-attn/Qwen-tagged PR lands.
+
+### Check 3 — Small Model Landscape: NO MATCH (LOW, one watch addition)
+- No new dense 1–7B models released between 2026-04-30 and 2026-05-09 that beat Qwen3.5-4B at our size class. Qwen3.6 line still 27B+ / MoE only — no 4B variant signaled.
+- LFM2-24B-A2B and DeepSeek-V4-Flash excluded (MoE total params would exceed 8 GB ceiling).
+- New embedding model **EmbeddingGemma-300M** observed — top open multilingual embedder under 500M, but does NOT beat Qwen3-Embedding-4B on raw MTEB. Not a quality replacement; only useful if we ever want to free RAM for a bigger LLM.
+- **Qwen3-VL-Embedding-2B** released Jan 2026 — multimodal (text+image+screenshot+video); expands capability axis but not a Qwen3-Embedding-4B replacement.
+- Notable Qwen3.5-4B fine-tune for next `experiment` slot: **`khazarai/Qwen3-4B-Qwen3.6-plus-Reasoning-Distilled-GGUF`** — distilled from Qwen3.6-plus teacher, focuses on concise CoT. Drop-in for current binary, zero memory risk.
+- Trigger `huggingface: Qwen4 OR Qwen3.5 successor` → **NO MATCH**.
+- Recommendation: Add khazarai distill to watch list; everything else, no action.
+
+### Check 4 — NVIDIA Jetson Forum: 1 INFO MATCH (LOW, no urgent action)
+- **dusty-nv/jetson-containers (2026-05-04 → 2026-05-06)** — vLLM 0.21.0, flash_infer 0.6.11, ONNX Runtime 1.25.1, PR #1693 BuildKit GPU build, fixes for xformers/cuSPARSELt 0.9.0 incompatibility. JetPack 7.2 became default container target on Apr 26. Relevant only if/when we move off JP 6.2.2.
+- **NVIDIA pypi.jetson-ai-lab.dev outage** (Apr 28→29, resolved) — informational; wheel mirror briefly down.
+- **CUDA 13.2 wheels test thread for Orin family** (pinned, last activity Apr 5) — direction signal, not yet relevant on CUDA 12.6.
+- **Yalexx benchmark** (updated 2026-03-26): Llama 3.2 3B Q4_K_M = 28.7 tok/s gen / 580 tok/s pp on Orin Nano via Ollama/llama.cpp — confirms our 4B 15.3 tok/s is in the expected band for the larger model.
+- **llama.cpp issue #19219** — open SM87-specific MoE decode hang on Orin AGX; flag for any future MoE evaluation (Qwen3-Coder-MoE etc.). Not biting current dense workload.
+- **Build-flag verification (closed inline)**: forum recommendation to verify `-DGGML_CUDA_F16=ON -DGGML_CUDA_FA_ALL_QUANTS=ON -DCMAKE_CUDA_ARCHITECTURES=87` against our b8987 build → CMakeCache confirms all three set. **Already optimal — no action.**
+- Trigger `forum: llama.cpp AND (performance OR optimization) AND jetson` → matched dusty-nv container ecosystem activity, but it's not direct llama.cpp tuning.
+- Classification: LOW.
+
+### Check 5 — Live Jetson Health: DEGRADED (recurring OOM-kill pattern)
+
+**Service & system:**
+| Metric | Value | Threshold | Status |
+|--------|-------|-----------|--------|
+| systemctl status | active (running), 21h since restart | active | DEGRADED — see OOM below |
+| System uptime | 25 days, 6:52 | stable | OK |
+| Mode | qwen35 | expected | OK |
+| llama.cpp HEAD | 5f0ab726f (b8987) | matches baseline | OK |
+| **NRestarts (lifetime)** | **11** | low | TRACK |
+| Last restart | 2026-05-09 01:04:34 EDT — **OOM-killed** | clean stop | **DEGRADED** |
+
+**Memory:**
+| Metric | Value | Threshold | Status |
+|--------|-------|-----------|--------|
+| RSS | 5,322 MB | < 5,963 (20% above 4,969 baseline) | OK (+7.1%) |
+| VmHWM (peak) | 5,592 MB | — | OK |
+| VmSwap | 71 MB | — | OK (mild leak to swap) |
+| Available RAM | 2,500 MB | > 500 MB | OK |
+| Free RAM | 174 MB | — | TIGHT (consistent with OOM risk) |
+| Swap used (zram) | 222 MB | — | OK |
+| Swap used (SSD) | 0 B | — | HEALTHY |
+
+**Performance (3-run sustained warm benchmark, medium prompt 52 tok → 256 tok):**
+| Run | PP tok/s | Gen tok/s |
+|-----|----------|-----------|
+| 1 | 160.8 | 15.18 |
+| 2 | 197.8 | 15.30 |
+| 3 | 184.3 | 15.26 |
+| **Mean** | **180.9** | **15.25** |
+
+Generation is **at baseline** (15.25 vs 15.30 baseline = -0.3%). PP is **above baseline** (181 vs 166 = +9%). Sustained throughput is healthy.
+
+**Thermal & power (idle, tegrastats):**
+| Metric | Value | Threshold | Status |
+|--------|-------|-----------|--------|
+| GPU temp | 49°C (49–60°C across cores) | < 75°C idle | OK |
+| CPU temp | 48–60°C | — | OK |
+| TJ temp | 60.5°C | — | OK |
+| GR3D_FREQ | 0% | idle expected | OK |
+| Power (VDD_IN) | 4.85 W | — | OK |
+| Disk | 17% (134G/824G) | < 70% | OK |
+
+**OOM-killer pattern (last 30 days):**
+| Date | Time (EDT) | Result |
+|------|-----------|--------|
+| Apr 16 | 01:02 | oom-kill |
+| Apr 16 | 21:24 | oom-kill |
+| Apr 19 | 01:01 | signal (likely manual) |
+| Apr 26 | 01:00 | oom-kill |
+| Apr 30 | 01:04 | signal (likely b8987 deploy) |
+| **May 9** | **01:04** | **oom-kill** |
+
+4 of 5 events fall in the **01:00–01:04 EDT window** — strong scheduled-job correlation. Likely culprits (cannot confirm without sudo): `anacron.timer` triggering `cron.daily` jobs (apt-compat, dpkg, man-db, apport), or `unattended-upgrades` overlapping with peak inference RSS. The May 9 OOM kernel log shows total-vm 47 GB / anon-rss 3.93 GB at the moment of kill — process was operating at normal RSS, so the trigger was external memory pressure, not internal growth.
+
+### Cross-Correlated Findings
+1. **Check 2 (no Jetson-relevant builds) ↔ Check 4 (build flags already optimal):** Together close out the rebuild question — there is **no llama.cpp action** to take this cycle.
+2. **Check 5 (OOM at 01:00 EDT recurring) ↔ Check 5 (free RAM 174 MB at idle):** Memory headroom at idle is genuinely tight. Any external memory pressure at the wrong moment will trigger OOM. Root cause is the static memory budget, not a leak (RSS only +7.1% above baseline; VmHWM only +13% above baseline).
+3. **Check 3 (no successor model) ↔ Check 1 (no JetPack 7.2 yet) ↔ Check 2 (no Jetson PRs):** Three checks independently confirm the platform is in a stable holding pattern — no upgrade path is currently available, and current setup is correctly tuned.
+
+### Triggered Alerts
+- **JetPack trigger:** NO — JP 7.2 still pre-release.
+- **llama.cpp trigger:** NO — no SM87/Jetson/Tegra/unified-memory PRs in 106-build window.
+- **HuggingFace trigger:** NO — no Qwen4 or Qwen3.5 successor at 4B.
+- **Forum trigger:** YES (LOW) — dusty-nv container activity, not direct llama.cpp tuning.
+
+### Overall: **WORTH WATCHING** (degraded health on memory pressure axis)
+
+Landscape is stable; production is well-tuned (build flags optimal, throughput at baseline). The downgrade is the **recurring 01:00 EDT OOM-kill cycle** — a service-availability issue rather than a configuration or upgrade gap.
+
+### Recommendations
+1. **ACTION (priority): Diagnose the 01:00 EDT scheduled-job memory pressure.** Run `sudo crontab -l`, `sudo systemctl list-timers --all`, `sudo cat /etc/anacrontab`, and grep `/var/log/syslog` and `/var/log/unattended-upgrades/*.log` around the 01:00–01:04 window. Most likely culprit is anacron firing `/etc/cron.daily/*` jobs (man-db rebuild and unattended-upgrades both have high transient memory). Two cheap mitigations once identified: (a) reschedule the offender to a quieter window via systemd timer override, or (b) add `MemoryHigh=5500M` / `MemoryMax=6000M` to `myscript.service` to force cgroup-level reclaim before kernel OOM.
+2. **WATCH:** Add `khazarai/Qwen3-4B-Qwen3.6-plus-Reasoning-Distilled-GGUF` to `experiment` mode candidates — drop-in for Qwen3.5-4B, distilled from a stronger teacher than the failed Claude-v2 distill.
+3. **WATCH:** JetPack 7.2 release date (Q2 2026 window). Re-check in 2–4 weeks; full reflash + 4–6 weeks of community validation before any move.
+4. **WATCH:** Qwen 4B successor in Qwen3.6 line — expected late May per prior cadence; not yet announced.
+5. **NO ACTION:** llama.cpp rebuild (no Jetson-relevant PRs in 106-build window).
+6. **CLOSED:** Build-flag verification — confirmed `GGML_CUDA_F16=ON`, `GGML_CUDA_FA_ALL_QUANTS=ON`, `CMAKE_CUDA_ARCHITECTURES=87`, `Release`. Already optimal.
+
+### Tracking value changes (proposed for JETSON_BASELINE.md)
+- `llamacpp_latest_seen`: b8987 → **b9093** (observed; we are not upgrading)
+- `models_last_checked_date`: 2026-04-30 → **2026-05-09**
+- `forum_last_checked_date`: 2026-04-30 → **2026-05-09**
+- `Last recon`: 2026-04-30 → **2026-05-09**
+- Watch items: add khazarai distill candidate; add OOM-kill investigation thread.
+
+---
+
+## Entry 023: OOM Root-Cause Investigation & 3-Layer Fix (2026-05-09)
+**Date:** 2026-05-10 03:30 UTC
+**Operator:** Claude Code
+**Status:** INVESTIGATION COMPLETE → CHANGES STAGED
+
+### Scope
+Investigate the recurring OOM-kill cycle flagged in Entry 022 (4 OOMs in 24 days, all clustering near 01:00–01:04 EDT).
+
+### Headline finding
+**The 01:00 EDT clustering was misleading.** The May 9 OOM had cron.daily run at 07:35 (per `/var/spool/anacron/cron.daily` mtime), so cron.daily was NOT the trigger. The Apr 16 21:24 OOM was nowhere near 01:00. **Root cause is structural: misconfigured VM tunables for an inference workload, on a system with no memory headroom.**
+
+### Evidence
+
+**1. Kernel OOM call stack** (`do_swap_page` → `__handle_mm_fault`): llama-server tried to access a previously-swapped page; kernel needed to allocate a free page to swap-in; no pages available → OOM-killer fired.
+
+**2. OOM dump — llama-server process state at moment of kill:**
+| Field | Value |
+|-------|-------|
+| total_vm | 47.1 GB (CUDA address space — expected) |
+| anon-rss | 3.93 GB |
+| **swapents** | **3.43 GB** ← llama-server had been swapped out |
+| pgtables | 8.7 MB |
+| oom_score_adj | 0 |
+
+**3. System-wide memory state at OOM:**
+| Field | Value |
+|-------|-------|
+| Free swap | 16.85 GB / 20.67 GB total → **3.82 GB used** |
+| Swap cache stats | add 17,772,087 / delete 17,899,505 / find 186,511 (massive thrashing since boot) |
+| Free RAM (Normal zone) | 35.6 MB (just above min watermark of 33.6 MB) |
+| Active anon | 208 KB (essentially nothing left in active set) |
+| Inactive anon | 84 KB |
+| Unevictable (mlocked) | 35.9 MB |
+
+**4. The `nvmemwarning.sh[109362]` log entries 1 second before OOM are an indicator, not a cause.** It's an NVIDIA-shipped systemd service (`/etc/systemd/nvmemwarning.sh`) that polls `free -m` every 300s and tries `notify-send` to X-users when available RAM < 150 MB. We are headless → it errors out with `sudo` usage messages. **Its firing is proof that available RAM dropped below 150 MB at that moment.**
+
+**5. VM tunables are catastrophic for an inference workload:**
+| Setting | Current | Effect | Inference-optimal |
+|---------|---------|--------|-------------------|
+| vm.swappiness | 60 (default) | Kernel aggressively swaps anon pages to make room for FS cache | **1** |
+| vm.min_free_kbytes | 45,056 (~44 MB) | Tiny safety buffer; OOM-killer fires before reclaim has a chance | **131,072 (~128 MB)** |
+| vm.watermark_scale_factor | 10 (~0.1% = 7 MB) | Reclaim doesn't start until critically low | **200 (~2% = ~150 MB)** |
+| vm.vfs_cache_pressure | 100 | Default | 50 (less reclaim of dentries — minor) |
+
+With `swappiness=60`, the kernel proactively swaps llama-server's anon pages to zram even when there's no real memory pressure — just to keep filesystem cache populated. Over 25 days uptime, 17.8M swap-cache adds → constant page churn → eventual OOM when llama-server faults a swapped-out page during a memory-thin moment.
+
+**6. 22+ idle `systemd-udevd` workers (PIDs 35337–35377)** present at OOM with RSS≈0. Symptomatic of a past udev event storm (probably boot-time). Not actively consuming memory; not a cause.
+
+### Why the 01:00 EDT clustering then?
+
+Statistical artifact + nvmemwarning's 300s polling interval. The system is constantly close to OOM for the entire uptime. nvmemwarning fires every 5 min if available drops below 150 MB. At any moment over weeks, there's a probability of memory dipping low enough that nvmemwarning notices and the kernel can't service llama-server's next page-fault. The 01:00 hour shows up because (a) some cron.hourly activity spikes IO/cache demand, (b) low-priority background services schedule then, and (c) llama-server has had hours of evening idle to accumulate inactive pages eligible for swap.
+
+### Fix plan (user approved A+B+C)
+
+**Layer A — sysctl tuning (root cause):**
+File: `/etc/sysctl.d/99-llm-inference.conf`
+```
+vm.swappiness = 1
+vm.min_free_kbytes = 131072
+vm.watermark_scale_factor = 200
+vm.vfs_cache_pressure = 50
+```
+Apply: `sudo sysctl --system`
+
+**Layer B — systemd cgroup memory limits (safety net):**
+File: `/etc/systemd/system/myscript.service.d/memory-limits.conf`
+```
+[Service]
+MemoryHigh=5500M
+MemoryMax=6000M
+```
+Apply: `sudo systemctl daemon-reload` (file picked up at next service restart; cgroup limits also applied live via `systemctl set-property myscript MemoryHigh=5500M MemoryMax=6000M --runtime` to avoid forcing restart now).
+
+**Layer C — disable nvmemwarning.service (cosmetic):**
+Headless system, no X user to notify. Just spams sudo errors.
+Apply: `sudo systemctl disable --now nvmemwarning.service`
+
+### Backup before changes
+- Current sysctls captured in this entry (above table)
+- Current `myscript.service` unit captured in JETSON_CONFIG.md (no change to base unit, only adding drop-in)
+- `nvmemwarning.service` is NVIDIA-shipped and reversible via `systemctl enable --now`
+
+### Expected outcomes
+- OOM-kill events should stop. Even under cron.daily / fs activity bursts, the kernel will start reclaiming at 150 MB free instead of 7 MB free, and llama-server's anon pages will not be evicted to zram.
+- Systemd cgroup memory pressure should be visible in `systemd-cgtop` if approached, providing telemetry.
+- If MemoryMax (6000M) is hit, systemd will issue `MemoryHigh` throttling first, then SIGKILL via cgroup OOM with a clean restart — much faster than kernel-level OOM and without affecting other processes.
+
+### Apply Results (2026-05-09 23:08 EDT / 2026-05-10 03:08 UTC)
+**Status: APPLIED — all 3 layers active. No service restart required.**
+
+**Backups saved on Jetson:** `/tmp/oom-fix-backup/{sysctls-before.txt, myscript-before.txt, nvmemwarning-{enabled,active}-before.txt}`
+
+**Layer A verification — sysctl live values:**
+```
+vm.swappiness = 1                  (was 60)
+vm.min_free_kbytes = 131072        (was 45056)
+vm.watermark_scale_factor = 200    (was 10)
+vm.vfs_cache_pressure = 50         (was 100)
+```
+
+**Layer B verification — cgroup limits live + persistent:**
+```
+MemoryCurrent = 5,515,395,072  (~5.14 GB — current usage)
+MemoryHigh    = 5,767,168,000  (5500 MB — applied)
+MemoryMax     = 6,291,456,000  (6000 MB — applied)
+```
+Drop-in file: `/etc/systemd/system/myscript.service.d/memory-limits.conf`. `systemctl set-property --runtime` applied limits to the running cgroup without restart.
+
+**Layer C verification — nvmemwarning disabled:**
+```
+is-enabled: disabled  (symlink removed from multi-user.target.wants/)
+is-active:  inactive
+```
+
+**Immediate effect on memory state:**
+| Metric | Before fix | After fix (~minutes later) |
+|--------|-----------|----------------------------|
+| Free RAM | 174 MB | **1.1 GB** (6× more) |
+| Buff/cache | 2.6 GB | 1.3 GB (kernel holding less cache) |
+| Available | 2.5 GB | 1.6 GB (about same effective headroom) |
+| Swap used | 222 MB | 320 MB (slight increase as zram absorbs evicted cache) |
+
+The "available" number went down because `swappiness=1` tells the kernel to keep less filesystem cache (which dominates "available"). But the **actually-free** number went up 6×. At the moment of the May 9 OOM, kernel reported free=35 MB; now it's 1.1 GB — 30× more breathing room before reclaim is forced.
+
+**Inference confirmed working:** `curl /v1/chat/completions` returned "ok" cleanly post-fix.
+
+### Caveat / future watch
+**MemoryCurrent (5.14 GB) is already close to MemoryHigh (5.5 GB)** — only ~360 MB of soft-throttle headroom. If multi-turn KV cache growth exceeds this, throttling will engage (which is the desired behavior — slows the cgroup, doesn't kill it). If it ever hits MemoryMax (6.0 GB), cgroup-OOM kills llama-server cleanly and systemd restarts it (5s) without taking the whole system into kernel-OOM territory. This is a much better failure mode than what we had.
+
+If `systemd-cgtop myscript.service` ever shows throttling activity, raise MemoryHigh to 5800M and MemoryMax to 6300M (still leaves ~1.1 GB for OS).
+
+### Pending (next session)
+- **Wait 7+ days**, recheck `journalctl -u myscript --since '7 days ago' | grep -iE 'oom|fail'` to confirm zero OOM events post-fix. Target: log Entry 024 around 2026-05-16 with verification.
+- Watch `MemoryCurrent` over time via `systemctl show myscript -p MemoryCurrent` to see if it grows past MemoryHigh.
+- If OOMs DO persist, next lever is reducing context size from 32768 → 16384 (halves KV cache from ~2 GB to ~1 GB, freeing ~1 GB working memory).
+- Reversal procedure if anything goes sideways: `sudo rm /etc/sysctl.d/99-llm-inference.conf && sudo sysctl --system && sudo rm /etc/systemd/system/myscript.service.d/memory-limits.conf && sudo systemctl daemon-reload && sudo systemctl enable --now nvmemwarning.service`. Backup files in `/tmp/oom-fix-backup/` for cross-reference (note: /tmp clears on reboot — copy them out if you want them long-term).
+
+---
