@@ -2582,4 +2582,13 @@ Three OOM kills now on record, **all global, all ~01:00, llama-server always the
 4. **Verify:** after applying, watch the next 00:40–01:10 windows for ~2 weeks; `journalctl -u myscript --since … | grep -i oom` should stay empty. Re-confirm root cause is fully addressed rather than assuming.
 5. **No action on Checks 1–4:** config remains optimal. Re-run recon immediately if JetPack 7.2 drops (imminent, by June 30).
 
+#### ✅ Fix Applied (2026-05-27, post-approval — supersedes "NOT applied" note above)
+All three layers implemented and verified the same day:
+1. **`OOMScoreAdjust=-900`** drop-in at `/etc/systemd/system/myscript.service.d/oom-protect.conf` → `daemon-reload` + `systemctl restart myscript`. **Verified:** `systemctl show myscript -p OOMScoreAdjust` = -900; live MainPID 163089 `/proc/.../oom_score_adj` = -900. llama-server is now OOM-protected (tied with snapd); a maintenance job will be the global-OOM victim instead.
+2. **`man-db.timer` disabled** (`systemctl disable --now`) → `disabled / inactive`. Removes the recurring 00:40–01:00 index-rebuild burst.
+3. **Desktop snaps removed** by user interactively (`snap` not in claude NOPASSWD): chromium, cups, gnome-46-2404, gtk-common-themes, mesa-2404. Only `bare`/`core22`/`core24`/`snapd` remain. Cuts snapd memory + watchdog-crash risk (the May 26 precipitant).
+- **Memory headroom:** available RAM 1.4 Gi (recon start) → 1.9 Gi (after layers 1–2) → **2.0 Gi** (after snap removal). Inference unaffected (~15 tok/s).
+- **Original unit backed up:** `~/llm-server/backups/oom-fix-2026-05-27/`.
+- **Verification due ~2026-06-10:** `journalctl -u myscript --since '2026-05-27' | grep -i oom` should be empty. Folded into next biweekly recon (Check 5 already scans for OOM).
+
 ---
