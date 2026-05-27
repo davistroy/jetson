@@ -2475,3 +2475,111 @@ If `systemd-cgtop myscript.service` ever shows throttling activity, raise Memory
 - Reversal procedure if anything goes sideways: `sudo rm /etc/sysctl.d/99-llm-inference.conf && sudo sysctl --system && sudo rm /etc/systemd/system/myscript.service.d/memory-limits.conf && sudo systemctl daemon-reload && sudo systemctl enable --now nvmemwarning.service`. Backup files in `/tmp/oom-fix-backup/` for cross-reference (note: /tmp clears on reboot — copy them out if you want them long-term).
 
 ---
+
+## Entry 024: Biweekly Recon (2026-05-13)
+**Date:** 2026-05-13 UTC
+**Operator:** Claude Code (jetson-recon skill)
+**Status:** RECON — no changes made
+
+### Check 1 — JetPack / Firmware: MEDIUM — JetPack 7.2 confirmed early June
+JetPack 7.2 now confirmed by NVIDIA staff (kayccc) for **early June 2026** — first JetPack 7.x targeting Orin. Expected: Ubuntu 24.04, kernel 6.8, CUDA 12.8+, TensorRT 10.5+. Full reflash required (no OTA). JetPack 7.0/7.1 were AGX Thor only. Current 6.2.2 remains latest for Orin Nano.
+
+### Check 2 — llama.cpp Releases: LOW — b9133 latest, nothing Jetson-relevant
+5 new releases since last seen b9093 (b9127–b9133, all May 12–13). All target non-Jetson backends: Qualcomm Hexagon DSP, Adreno OpenCL, AMD ZenDNN, server reasoning features, CLI arg renaming. Zero SM87/CUDA/flash-attn/KV changes. **b9131 CLI arg consistency change** is a yellow flag — verify startup script args before any future rebuild. No upgrade warranted.
+
+### Check 3 — Small Model Landscape: INFO — new trial candidates, Gemma 4 still blocked
+- **Phi-4-mini-instruct** (3.8B dense, 2.49 GB Q4_K_M, 128K ctx, MMLU 68.5): Fits experiment slot. Production-ready GGUF. Worth trialing against Qwen3.5-4B.
+- **Gemma 4 E2B**: Still blocked by llama.cpp #22243 (PLE not injected into forward graph). Also #22396 (json-schema crash) and #16370 (GPU offload on SM87). Multiple blockers — wait for upstream.
+- **Jackrong/Qwen3.5-4B-Claude-4.6-Opus-Reasoning-Distilled-v2-GGUF**: Different author/approach from the archived v1 distill. Targets excessive CoT specifically. Zero memory risk. Low-priority smoke test.
+- **EmbeddingGemma-300M** (ggml-org, ~200 MB Q4_K_M, MTEB #8): Not a quality replacement for Qwen3-Embedding-4B (MTEB #3), but interesting if RAM reclaim ever needed.
+- **Qwen3.6 small models**: Confirmed absent. Qwen3.6 line is 27B/35B only. Push expected date to **Q3 2026**.
+- **Qwen4**: No release. Prediction markets say possible before July 2026 but nothing shipped.
+
+### Check 4 — Forum & Community: INFO — setup validated, no new techniques
+- **Build flags FA_ALL_QUANTS + CUDA_F16**: Forum flagged as critical optimizations — ALREADY CONFIRMED in current b8987 build (JETSON_CONFIG.md). No gap.
+- **Symmetric KV for flash attention**: Already using q8_0 for both K and V. Fused FA path should be active.
+- **Community tok/s reference**: Orin Nano getting 11–14 tok/s on comparable models with stock setups. Current 15.3 tok/s is **above community average** — confirms tuning is effective.
+- **MoE hang on SM87** (#19219): Still unresolved but only affects MoE architectures. Dense Qwen3.5-4B is safe.
+- **NVIDIA blog** on OS memory reclaim: 865 MB recoverable by disabling desktop. Already running headless.
+- **16 GB file-backed swap**: Becoming community standard. Already configured (though zram also active).
+
+### Check 5 — Live Health: HEALTHY
+- **Service**: UP, active since 2026-05-09 01:04:34 (4 days post-OOM fix)
+- **System uptime**: 28 days, load 0.00
+- **RAM**: 6.2/7.4 GiB used, 387 MiB available (below 500 MB threshold, but expected steady-state with cgroup limits active)
+- **MemoryCurrent**: 5.21 GiB vs MemoryHigh 5.3 GiB (165 MiB soft headroom) — cgroup throttle engaged as designed
+- **Thermals**: 46.6–48.6°C across all zones — well under 75°C idle threshold
+- **Inference**: 14.26 tok/s gen (6.8% below 15.3 baseline, within 15% threshold; small 6-token sample)
+- **Disk**: 17% used (134G/824G)
+- **Swap**: 819 MiB zram used, 16 GB SSD swap idle — healthy distribution
+- **OOM verification (4/7 days)**: Zero OOM events since May 9 fix. Only log entries are the pre-fix crash at 01:04:27. **Fix holding.**
+- **3-layer fix intact**: sysctl conf present, cgroup limits enforced, nvmemwarning disabled
+
+### Cross-Correlated Findings
+1. **Forum build flags (Check 4) vs config (baseline)**: Forum agent flagged FA_ALL_QUANTS + CUDA_F16 as unconfirmed — resolved as FALSE FLAG. Both confirmed in JETSON_CONFIG.md build commands. No gap.
+2. **JetPack 7.2 (Check 1) + TensorRT-Edge-LLM (Check 4)**: Correlated. JP 7.2 with CUDA 12.8+ will unblock the previously deferred TensorRT-Edge-LLM evaluation. Timeline: early June.
+3. **Gemma 4 E2B (Check 3) + SM87 GPU issues (Check 4)**: Multiple open llama.cpp issues for Gemma on Jetson SM87. Not usable until upstream fixes land.
+4. **OOM fix verification (Check 5)**: 4 of 7 target days complete. Zero events. On track for full verification by 2026-05-16.
+
+### Triggered Alerts
+| Trigger | Match | Status |
+|---------|-------|--------|
+| JetPack 7.2 AND Orin | YES | MEDIUM — confirmed early June, not yet released |
+| llama.cpp SM87/Jetson | NO | No relevant changes in b9094–b9133 |
+| Qwen4 / Qwen3.5 successor | NO | Neither released |
+| Forum optimization techniques | PARTIAL | Build flags already applied; no new techniques |
+
+### Overall: WORTH WATCHING
+
+### Recommendations
+1. **No immediate action needed** — current config remains optimal for the hardware
+2. **Optional trial**: Download Phi-4-mini-instruct Q4_K_M (2.49 GB) for experiment slot — first real alternative to Qwen3.5-4B worth benchmarking
+3. **2026-05-16**: Complete OOM fix verification (7-day mark) — run `journalctl` check, log as Entry 025
+4. **2026-05-14 (tomorrow)**: Safe to delete `~/llm-server/backup-b8766/` — 2 weeks of stable b8987 reached
+5. **Early June**: Watch for JetPack 7.2 release — re-run recon immediately if it drops
+6. **Ongoing**: Monitor llama.cpp #22243 (Gemma 4 PLE) — when fixed, Gemma 4 E2B becomes top trial priority
+7. **Update watch items**: Push Qwen3.6 small model expectation from "late May" to Q3 2026
+
+---
+
+## Entry 025: Biweekly Recon + OOM Recurrence Root-Cause (2026-05-27)
+**Date:** 2026-05-27 16:40 UTC
+**Operator:** Claude Code (jetson-recon skill)
+**Status:** RECON — no changes made
+
+#### Check 1 — JetPack / Firmware: JetPack 7.2 still **NOT released** as of 2026-05-27 (Q2 window closes June 30). Orin Nano support remains *planned, not shipped*. When it lands: CUDA 12.6→13.0, kernel 5.15→6.8, Ubuntu 22.04→24.04, full reflash. **MEDIUM (announced, imminent).** Trigger `JetPack 7.2 AND Orin` NOT matched (not released — only announced).
+#### Check 2 — llama.cpp Releases: Latest **b9360** (2026-05-27). **373 builds since running b8987; 227 since last-seen b9133. Zero SM87/Jetson/Tegra/unified-memory changes.** CLI-arg standardization continues (b9360: env vars all moved to `LLAMA_ARG_*` prefix) — breaking-change risk compounds the b9131 arg renames. **LOW.** Trigger NOT matched. Hold at b8987.
+#### Check 3 — Small Model Landscape: No new 4B-class dense model since 2026-05-13. Qwen3.6 still ships only 27B/35B-A3B (no 4B tier; expected Q3 2026). Gemma 4 E2B/E4B still blocked by llama.cpp **#22243 (PLE unimplemented), unfixed**. Phi-4-mini already on watch list. Embedding: Jina Embeddings v4 (~3B) worth a GGUF check vs Qwen3-Embedding-4B. **Zero-risk lever:** Qwen3.5-4B LoRA fine-tunes (coding/text-to-SQL) drop in at ~50 MB. **NO ACTION.** Trigger `Qwen4 OR Qwen3.5 successor` NOT matched.
+#### Check 4 — Jetson Forum / Community: No technique beats our 15.3 tok/s on Orin Nano 8GB for a 4B/7B Q4_K_M model — community consensus is memory-bandwidth-bound single-stream. flouisdev auto-config post (2026-04-13) already on watch list. TensorRT-LLM still AGX-Orin-only / experimental on Nano (~20 tok/s, slower than llama.cpp single-stream). **INFO only / NO ACTION.**
+#### Check 5 — Live Health: Server **UP** (qwen35, b8987, port 8080). Gen **15.05 tok/s** (vs 15.3 baseline, −1.6%, healthy). Thermals ~47–49°C (healthy). Disk 17%. Swap: 325 MB on zram only, 16 GB file swap untouched. **BUT: recurring OOM kills — service restarted 2026-05-26 01:07 after its 3rd OOM kill. DEGRADED.**
+
+#### 🔴 KEY FINDING — Entry 023 OOM Fix DID NOT WORK (root cause was misdiagnosed)
+Three OOM kills now on record, **all global, all ~01:00, llama-server always the victim:**
+
+| Date | Time | Constraint | Victim oom_score_adj | llama anon-rss | Precipitant in window |
+|------|------|-----------|---------------------|----------------|----------------------|
+| May 09 | 01:04:27 | CONSTRAINT_NONE (global) | 0 | 3932 MB | (pre-fix baseline) |
+| May 17 | 01:01:06 | CONSTRAINT_NONE (global) | 0 | 3932 MB | early-AM maintenance |
+| May 26 | 01:06:52 | CONSTRAINT_NONE (global) | 0 | 3934 MB | **snapd watchdog SIGABRT + Go crash-dump** |
+
+**Confirmed mechanism (no longer hypothesis):**
+1. OOM is **global (system-wide RAM exhaustion), NOT the cgroup MemoryMax** — so the Entry 023 cgroup limits (`MemoryHigh=5500M`/`MemoryMax=6000M`) cannot prevent it; the spiker is *external* to the llama-server cgroup.
+2. **snapd is OOM-protected at `oom_score_adj=-900`** (2.1 GB virtual; runs headless-useless desktop snaps: chromium, gnome-46, mesa-2404, gtk-common-themes, cups). The kernel literally cannot pick it.
+3. **llama-server sits at `oom_score_adj=0` with the largest anon-rss (~3.93 GB)** → it is *always* the selected victim.
+4. On 8 GB unified RAM the live headroom is razor-thin (free 590 MB, cgroup `available: 139 MB`). Any early-AM maintenance burst (man-db index rebuild fires in the 00:40–01:00 window; anacron cron.daily; occasionally a snapd watchdog crash-dump as on May 26) tips total memory over the edge.
+5. **Entry 023 concluded "NOT cron-triggered; structural swappiness" and applied `vm.swappiness=1` + cgroup limits.** That reduced swap thrashing but never touched the two real levers — *headroom* and *OOM victim selection*. Result: kills recurred on May 17 (8 days later) and May 26 (9 days later). This is the whack-a-mole pattern the systematic-debugging rule warns against.
+
+#### Cross-Correlated Findings: Check 5 OOM recurrence ⨯ Entry 023 fix ineffectiveness ⨯ live 139 MB cgroup headroom → all point to one structural conclusion: **on this 8 GB box, llama-server must be made the OOM survivor, not the sacrifice, and the early-AM memory pressure must be cut.** Single root cause, multi-date corroboration → HIGH confidence.
+#### Triggered Alerts: No web-source trigger matches (jetpack/llamacpp/huggingface/forum all NOT matched). The ACTION classification is driven entirely by Check 5 health DEGRADED.
+#### Overall: **ACTION NEEDED** — recurring inference-server OOM kills; prior fix ineffective.
+
+#### Recommendations (RECON = report only; NOT applied — awaiting approval)
+1. **Protect the inference server from OOM victim selection (primary, lowest-risk, trigger-agnostic):** add `OOMScoreAdjust=-900` to `myscript.service`. Then global OOM will evict snapd / a maintenance job instead of llama-server. This stops the symptom regardless of which job spikes on a given night.
+2. **Cut the early-AM memory pressure (addresses the trigger):**
+   - `systemctl disable --now man-db.timer` — man-db index rebuild is useless on a headless server and is the recurring 00:40–01:00 burst.
+   - Remove headless-useless desktop snaps (chromium, gnome-46-2404, mesa-2404, gtk-common-themes, cups) and/or mask snapd refresh — snapd's watchdog crash was the May 26 precipitant; it serves nothing here (Docker is the container runtime, no snaps in use for inference).
+3. **Re-evaluate the Entry 023 cgroup limits:** `MemoryMax=6000M` does not prevent global OOM and the live `available: 139 MB` shows llama-server is being actively reclaim-throttled at MemoryHigh — possible marginal latency cost for zero OOM benefit. Consider relaxing/removing once (1)+(2) are in place.
+4. **Verify:** after applying, watch the next 00:40–01:10 windows for ~2 weeks; `journalctl -u myscript --since … | grep -i oom` should stay empty. Re-confirm root cause is fully addressed rather than assuming.
+5. **No action on Checks 1–4:** config remains optimal. Re-run recon immediately if JetPack 7.2 drops (imminent, by June 30).
+
+---
