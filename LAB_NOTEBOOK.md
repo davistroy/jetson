@@ -2659,3 +2659,33 @@ All three layers implemented and verified the same day:
 6. Minor / zero-risk: try Jackrong Qwen3.5-4B reasoning fine-tunes in experiment slot; re-check TensorRT-Edge-LLM v0.8.0 compatibility matrix (CUDA 13.2 under JP7.2 may unblock the 2026-04-30 deferral); jina-embeddings-v5-small as lightweight embedding upgrade; Gemma 4 E2B unblocked but borderline at 3.11 GB.
 
 ---
+
+## Entry 027: Ultra-Plan — Implementation Design for Entry 026 Items 1–5 (2026-06-11)
+**Date:** 2026-06-11 UTC
+**Operator:** Claude Code (ultra-plan skill)
+**Status:** PLANNING — analysis only, no changes made; awaiting approval
+
+#### Investigation surprises (verified live, read-only SSH)
+1. **MemoryCurrent 5.21 GiB — only 170 MB below MemoryHigh (5.37 GiB).** Reclaim throttling imminent/active; plausible cause of the 14.17 vs 15.3 tok/s dip (`--mlock` concentrates reclaim pressure on the unlocked remainder). Cgroup limits exist in TWO layers: `/etc/systemd/system/myscript.service.d/memory-limits.conf` AND runtime duplicates at `/run/systemd/system.control/myscript.service.d/50-{MemoryHigh,MemoryMax}.conf` (set-property artifacts, same values). NEVER `systemctl revert` (would delete oom-protect.conf too) — surgical `rm` + daemon-reload.
+2. **Power mode is MAXN_SUPER (mode 2)** but `/etc/nvpmodel.conf` default is 1 (25W). Modes: 0=15W, 1=25W, 2=MAXN_SUPER. `nvpmodel` IS in NOPASSWD sudoers (so are tee/cat/ls/jetson_clocks — broader than documented; no Troy-interactive steps needed anywhere in this plan).
+3. **`start-experiment.sh` is BROKEN** — points at Qwen3.5-4B-Claude-Distilled-v2-Q4_K_M.gguf, deleted 2026-05-13. Selecting experiment mode today = 5s crash loop, each iteration running the 5 GiB page-cache evictor.
+4. **Startup evictor vs watchdog interaction:** every start script allocates a 5 GiB bytearray to evict page cache — MemAvailable crashes to ~0 on every service start. A naive MemAvailable watchdog would restart-loop. Guards required: 2-consecutive-poll breach + myscript active >180s + 15-min cooldown + MAINTENANCE flag bypass.
+5. **No script uses `LLAMA_*` env vars** → b9360 `LLAMA_ARG_*` breaking change is moot. Only b9131 CLI renames matter (13 distinct flags across 5 start scripts).
+6. CMA on this box: 256 MB total / 67 MB free (forum thread's box had 512 MB). MemAvailable 1.05 GiB at rest.
+
+#### Change sets (approved design pending)
+- **CS-A Platform envelope (one evening):** (A1) replace memory-limits.conf with `MemoryMax=6400M` ONLY — no MemoryHigh; rm runtime 50-* drop-ins; rationale: MemoryHigh throttles without protecting, but a raised MemoryMax stays as the one llama-server-scoped backstop (an MTP-leaking llama-server at adj −900 would otherwise recreate June 7 as the villain). Re-bench immediately (tests throttle-dip hypothesis). (A2) root `memory-watchdog.service`: 30s poll; WARN <700 MB → snapshot; CRITICAL <350 MB ×2 polls + guards → snapshot + restart myscript; hourly heartbeat CSV (MemAvailable, MemoryCurrent, NvMap iovmm, RSS) — replaces the forensics June 7's journal gap denied; OOMScoreAdjust=-1000, MemoryMax=64M; induced-fire test in attended window. Plus `cma-compact.conf` drop-in: `ExecStartPre=+` sync/drop_caches/compact_memory. (A3) power mode by measurement: bench.sh under MAXN_SUPER vs 25W (check jetson_clocks --show first); tie → 25W; winner becomes new baseline.
+- **CS-B Rebuild (maintenance window, 45–90 min downtime):** backup build/bin → backup-b8987-bin; MAINTENANCE flag; stop; checkout latest (≥b9596); identical CMake flags (verified in CMakeCache: Release/ARCH=87/F16/FA_ALL_QUANTS/CUDA_GRAPHS); -j6 (fallback -j4); **flag-migration gate**: --help diff vs all 5 scripts before first start; bench gate: gen ≥ baseline −5% else rollback. Bonus: 6 weeks of CVE fixes (server is LAN-exposed, --host 0.0.0.0).
+- **CS-C MTP trial (setup + 48 h soak):** rewrite stale start-experiment.sh (fixes broken mode) → unsloth/Qwen3.5-4B-MTP-GGUF Q4_K_M (2.83 GB) + `--spec-type draft-mtp`; hour-1 gates (acceptance rate, tok/s); soak with watchdog heartbeat as RSS-slope instrument; promote gate: ≥+25–30% gen AND flat RSS → update start-qwen35-server.sh. Lossless w.r.t. output quality (speculative decode verifies tokens).
+- **CS-D Fine-tune trials (optional, time-boxed):** Jackrong Claude-4.6-Opus-distill + Neo, sequential in experiment slot, ~10-prompt quality probe gate (v2-distill reasoning-loop = cautionary precedent). Default = don't promote.
+
+#### Sequence & dependencies
+CS-A → (1–2 days heartbeat settle) → CS-B → CS-C → CS-D. Power mode finalized BEFORE CS-B benchmarks; watchdog live BEFORE CS-C soak; CS-C/CS-D serialize on the single experiment slot.
+
+#### Unknowns register
+U1 b9131 rename specifics (resolve: --help diff, CS-B step 4) · U2 MTP leak-workaround flag (GitHub search pre-CS-C) · **U3 MTP draft acceptance on Qwen3.5-4B — HIGH, decides CS-C value (hour-1 abort gate)** · U4 throttle-dip hypothesis (answered by post-A1 re-bench) · U5 does cgroup MemoryCurrent see NvMap allocations (compare vs RSS/iovmm during A2 verify) · U6 jetson_clocks state (pre-A3 check).
+
+#### Out of scope
+JetPack 7.2 upgrade (separate decision ~2026-06-25+; inherits CS-B's migrated scripts), VMM local patch (baseline trigger watches), TensorRT-Edge-LLM (post-JP7.2), embedding changes, Gemma 4 E2B.
+
+---
