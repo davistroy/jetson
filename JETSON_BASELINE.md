@@ -1,7 +1,7 @@
 # Jetson Performance Baseline
 
-Last updated: 2026-05-27
-Last recon: 2026-05-27
+Last updated: 2026-06-11
+Last recon: 2026-06-11
 
 ## Current Config
 | Field | Value |
@@ -25,46 +25,45 @@ Last recon: 2026-05-27
 ## Version Tracking
 | Field | Value |
 |-------|-------|
-| llamacpp_latest_seen | b9360 |
-| jetpack_latest_orin_nano | 6.2.2 |
-| jetpack_next_expected | 7.2 (early June 2026, confirmed by NVIDIA staff) |
+| llamacpp_latest_seen | b9596 |
+| jetpack_latest_orin_nano | 7.2 (L4T r39.2, released 2026-06-01) |
+| jetpack_next_expected | n/a — 7.2 shipped; watch for 7.2.x point release fixing power-mode TNSPEC bug |
 
 ## Model Tracking
 | Field | Value |
 |-------|-------|
 | current_model | Qwen3.5-4B-Q4_K_M |
 | current_embedding_model | Qwen3-Embedding-4B-Q4_K_M |
-| models_last_checked_date | 2026-05-27 |
+| models_last_checked_date | 2026-06-11 |
 
 ## Forum Tracking
 | Field | Value |
 |-------|-------|
-| forum_last_checked_date | 2026-05-27 |
+| forum_last_checked_date | 2026-06-11 |
 
 ## Recon Triggers
 | Source | Pattern | Action | Added |
 |--------|---------|--------|-------|
-| jetpack | JetPack 7.2 AND (Orin Nano OR Orin) | ACTION: Evaluate JetPack 7.2 upgrade (full reflash, wait for community validation) | 2026-04-13 |
+| jetpack | (JetPack 7.2.1 OR 7.3 OR power mode fix OR TNSPEC) AND (Orin Nano OR Orin) | ACTION: JP7.2 ecosystem maturing — re-evaluate reflash window (Entry 026: wait 2–4 weeks from 2026-06-11) | 2026-06-11 |
 | llamacpp_release | SM87 OR Jetson OR Tegra OR unified memory | ACTION: Check release notes for Jetson-specific improvements | 2026-04-13 |
+| llamacpp_release | VMM OR cuMemCreate OR NvMap | ACTION: NvMap VMM allocator patch (#23747) resubmitted — evaluate local application for the OOM root cause | 2026-06-11 |
 | huggingface | Qwen4 OR Qwen3.5 successor | INFO: New Qwen generation may improve quality at same size | 2026-04-13 |
 | forum | llama.cpp AND (performance OR optimization) AND jetson | INFO: Community optimization techniques to evaluate | 2026-04-13 |
 
 ## Watch Items
-- ⏰ **NEXT RECON (~2026-06-10) — VERIFY OOM FIX (Entry 025):** In Check 5, run `journalctl -u myscript --since '2026-05-27' --no-pager | grep -iE 'oom|killed'` and `journalctl -k --since '2026-05-27' --no-pager | grep -i 'oom-kill'`. **Empty = fix confirmed** (then close this item + relax Entry 023 cgroup limits per re-eval note below). **Any llama-server OOM kill since 2026-05-27 = fix failed** → re-investigate global-OOM victim selection (confirm `OOMScoreAdjust=-900` still live on MainPID; identify which adj=0 process the kernel is now picking).
-- **OOM-kill root cause** — Entry 023 (2026-05-09) MISDIAGNOSED it as swappiness; that fix did NOT work (recurred May 17 + May 26). **TRUE root cause (Entry 025, 2026-05-27, multi-date confirmed):** GLOBAL OOM (`constraint=CONSTRAINT_NONE`), not the cgroup limit. On 8 GB unified RAM, llama-server's ~3.93 GB anon-rss at `oom_score_adj=0` is always the largest unprotected process, while snapd is vendor-protected at -900 — so the kernel always kills llama-server when early-AM maintenance (man-db rebuild 00:40–01:00, anacron, occasional snapd watchdog crash-dump as on May 26) exhausts physical RAM. **FIX APPLIED 2026-05-27 (Entry 025):** (1) `OOMScoreAdjust=-900` drop-in on `myscript.service` (`/etc/systemd/system/myscript.service.d/oom-protect.conf`) — verified live, MainPID now at -900, so llama-server survives and a maintenance job is evicted instead; (2) `man-db.timer` disabled (removed the recurring 00:40–01:00 burst). (3) **DONE 2026-05-27** (user ran interactively — `snap` not in claude NOPASSWD): removed headless-useless desktop snaps (chromium, cups, gnome-46-2404, gtk-common-themes, mesa-2404); only `bare`/`core22`/`core24`/`snapd` remain. Available RAM 1.4 Gi → 2.0 Gi across the full fix. Backup of original unit at `~/llm-server/backups/oom-fix-2026-05-27/`. **Verify after ~2 weeks (~2026-06-10, next biweekly recon):** `journalctl -u myscript --since '2026-05-27' | grep -i oom` should be empty.
-- **Entry 023 cgroup limits re-evaluation** — `MemoryMax=6000M`/`MemoryHigh=5500M` do NOT prevent global OOM (external spiker) and live `available: 139M` shows llama-server is being reclaim-throttled at MemoryHigh (possible marginal latency cost). Consider relaxing/removing once the Entry 025 fix is confirmed effective.
-- JetPack 7.2 expected Q2 2026 -- will bring Ubuntu 24.04, kernel 6.8, CUDA 13.0. Full reflash required. Wait 2-4 weeks after release for community validation.
-- nvidia-smi sudoers — FIXED 2026-04-30 (path was /usr/sbin/ not /usr/bin/, missing comma before sysctl). Also added journalctl and systemd-journal group.
-- Qwen3.5-4B-Claude-Distilled-v2-Q4_K_M — TESTED 2026-04-30, FAIL. DELETED 2026-05-13 (reasoning loop bug, not worth keeping).
-- Old binary backup at ~/llm-server/backup-b8766/ — DELETED 2026-05-13 (2 weeks stable)
-- **`khazarai/Qwen3-4B-Qwen3.6-plus-Reasoning-Distilled-GGUF`** — ADDED 2026-05-09 (Entry 022). Drop-in candidate for `experiment` mode: distilled from Qwen3.6-plus teacher (stronger than failed Claude-v2 distill), focuses on concise CoT. Zero memory risk vs current Qwen3.5-4B.
-- Phi-4-mini-instruct (Q4_K_M ~2.5 GB) and Gemma-4-E2B (~2 GB) as alternative small models worth benchmarking
-- llama.cpp auto-config agent post by flouisdev (2026-04-13) -- potential for dynamic mode switching optimization: https://forums.developer.nvidia.com/t/local-first-coding-agent-that-auto-configures-llama-cpp-for-maximum-hardware-performance/366366
-- TensorRT Edge-LLM — EVALUATED 2026-04-30, DEFERRED. Experimental Orin support, CUDA 12.6 vs 12.8+ mismatch, no HTTP server. Revisit when Orin officially supported or JetPack ships CUDA 12.8+.
-- Qwen3.6 small models -- Qwen3.6 released (27B, 35B-A3B MoE) but no 4B-class models yet. Expected Q3 2026 (pushed from late May). Direct drop-in upgrade from Qwen3.5-4B.
-- Jina Embeddings v4 -- 3B model (~1.93 GB Q4_K_M), potential upgrade from Qwen3-Embedding-4B for retrieval quality
-- Gemma 4 E2B/E4B -- still blocked by llama.cpp PLE issue #22243. Community confirms E4B OOM on Orin Nano. Re-evaluate when #22243 fixed.
-- llama.cpp build b9360 SEEN 2026-05-27 (Entry 025) — 373 builds since running b8987, zero SM87/Jetson-relevant changes; not upgrading. **Compounding breaking change:** b9131 renamed CLI args AND b9360 moved all env vars to `LLAMA_ARG_*` prefix — verify startup scripts before any future rebuild. Re-evaluate when CUDA/flash-attn/Qwen-tagged PR lands.
-- JetPack 7.2 still NOT released as of 2026-05-27 (Entry 025) — only announced for Orin Nano; Q2 window closes June 30. Re-run recon immediately if it drops. Will bring CUDA 13.0 / kernel 6.8 / Ubuntu 24.04, full reflash, llama.cpp rebuild likely required.
-- Build-flag verification CLOSED 2026-05-09: confirmed `GGML_CUDA_F16=ON`, `GGML_CUDA_FA_ALL_QUANTS=ON`, `CMAKE_CUDA_ARCHITECTURES=87`, `Release` — already optimal.
+- ⚠️ **OOM ROOT CAUSE OPEN (Entry 026, 2026-06-11) — Entry 025 verification FAILED:** llama-server OOM-killed 2026-06-07 01:15 EDT despite the Entry 025 layers working as designed (adj −900 kept it alive ~15 min into a global OOM storm while the kernel killed everything else first). Kernel dump shows the true consumer: **~7+ GB of 7.6 GB managed RAM held by NvMap/GPU memory invisible to kernel OOM accounting** — killing userspace freed nothing. NOT man-db (timer dead since 05-27), NOT a cgroup kill; immediate trigger unrecoverable (journal gap). Mitigation candidates (awaiting approval): (a) userspace watchdog on `MemAvailable`/NvMap iovmm that restarts `myscript` before global exhaustion; (b) local VMM allocator patch — llama.cpp #23732/#23747 (`GGML_CUDA_VMM_BUFFERS=1`, ~105 lines in ggml-cuda.cu, demoed on this exact board) closed unmerged — watch for resubmission (trigger added); (c) CMA workaround `sync` + `drop_caches` + `compact_memory` in start script before model load (forums.developer.nvidia.com/t/370049 — NVIDIA confirms r36.5 NvMap fixes don't address it); (d) JetPack 7.2 kernel 6.8 may change NvMap/CMA behavior — couple with upgrade evaluation. **Next recon: re-scan `journalctl -u myscript --since '2026-06-11' | grep -iE 'oom|killed'`.**
+- **Entry 023 cgroup limits — REMOVAL RECOMMENDED (Entry 026, awaiting approval):** June 7 proved `MemoryMax`/`MemoryHigh` don't prevent global OOM, and the unit sits ~216 MB below the MemoryHigh reclaim throttle with RSS up ~250 MB in 4 days (5228 MB live vs 4969 baseline). Cost without benefit — relax/remove.
+- **JetPack 7.2 RELEASED 2026-06-01/02** (L4T r39.2, Ubuntu 24.04, kernel 6.8, CUDA 13.2.1, cuDNN 9.20, TensorRT 10.16.2; Orin Nano Super 8GB explicitly supported). **Full reflash** via new USB ISO installer (SD-card images discontinued); UEFI ≥ 36.x required (36.4.3 capsule-update timeout workaround: manual USB boot). **DO NOT upgrade yet (re-evaluate ~2026-06-25+):** power-mode TNSPEC bug (only 7W/15W visible; workaround `sudo nvpmodel -m 2`) unfixed at source; CUDA 12.6 prebuilt ecosystem (dustynv containers, Ollama, PyTorch wheels) broken under JP7.2; llama.cpp source rebuild vs CUDA 13.2 required (budget `start-*.sh` updates for b9131/b9360 breaking changes in the same window). Upside beyond currency: possible structural NvMap/OOM fix, arm64-SBSA containers (upstream vLLM runs unmodified), container-toolkit CVE fixed only in 7.x.
+- **MTP speculative decoding (Entry 026) — strongest throughput lead:** mainline llama.cpp PR #22673 (merged 2026-05-16, AFTER running b8987) + `unsloth/Qwen3.5-4B-MTP-GGUF` (Q4_K_M 2.83 GB, same weights + MTP head, ~10% KV overhead) → claimed 1.5–2× decode; corroborated by cortexist/llama.cpp fork (+30–40% tok/s on Orin NX, forums.developer.nvidia.com/t/372493). Trial in experiment slot after a rebuild: validate the reported MTP memory-leak (workaround flag exists) under the OOM guard and measure draft acceptance (#23322 reports low acceptance on SWA/hybrid models) before promoting.
+- llama.cpp **b9596 SEEN 2026-06-11** (Entry 026) — ~609 builds past running b8987; **no new breaking changes** beyond b9131 CLI renames + b9360 `LLAMA_ARG_*` env prefix. Rebuild case: MTP support (above), #23907 startup KV-cache reservation (deterministic fail-at-startup vs mid-run OOM with q8_0 KV), #24360 CUDA ssm_scan race fix. **SM87 MoE decode hang #19219 closed "not planned"** — avoid small MoE models on this device until resolved.
+- **Power mode check (Entry 026):** smolhub benchmark on this exact device (2026-05-29): 25W (`nvpmodel -m 1`) is the throughput/efficiency sweet spot; MAXN_SUPER costs +17% power for −3%..+8% throughput. Verify current mode with `nvpmodel -q`.
+- **TensorRT-Edge-LLM v0.8.0 (2026-06-03)** — now NVIDIA's official Jetson LLM runtime (HF→ONNX, quantization, EAGLE speculative decoding); TensorRT-LLM Jetson branch confirmed unmaintained. Was DEFERRED 2026-04-30 over CUDA 12.6 mismatch — re-check compatibility matrix; JP7.2's CUDA 13.2 may unblock. Orin Nano 8GB + Qwen-4B support unverified.
+- **`khazarai/Qwen3-4B-Qwen3.6-plus-Reasoning-Distilled-GGUF`** — ADDED 2026-05-09 (Entry 022). Drop-in candidate for `experiment` mode; zero memory risk. Still untested.
+- **Jackrong Qwen3.5-4B fine-tunes (Entry 026)** — zero-memory-cost experiment-slot trials: `Qwen3.5-4B-Claude-4.6-Opus-Reasoning-Distilled-GGUF` (2.71 GB; GPQA-D 33.8→38.9, ARC-C 64.6→66.4 vs base) and `Qwen3.5-4B-Neo-GGUF` (concise-reasoning — fewer tokens/answer matters at 15 tok/s).
 - Phi-4-mini-instruct (3.8B dense, 2.49 GB Q4_K_M, 128K ctx) — ADDED 2026-05-13 (Entry 024). First non-Qwen alternative worth benchmarking in experiment slot. GGUF at bartowski/microsoft_Phi-4-mini-instruct-GGUF.
+- **Gemma 4 E2B — UNBLOCKED (Entry 026):** PLE issue llama.cpp#22243 closed completed 2026-04-23 (premise wrong — PLE already implemented in `src/models/gemma4-iswa.cpp`; ≥Q4_K quant of PLE tensors safe). E2B Q4_K_M = 3.11 GB — borderline over the 3 GB ceiling, viable only with reduced ctx; E4B still OOM territory. Low priority.
+- Qwen3.6 small models — still no 4B-class as of 2026-06-11 (27B + 35B-A3B MoE only); Q3 2026 expectation unchanged. Direct drop-in upgrade from Qwen3.5-4B when it ships.
+- **jina-embeddings-v5-text (supersedes Jina v4 tracking, Entry 026):** small = 677M, distilled FROM Qwen3-Embedding-4B, MMTEB 67.0 (vs ~69.5 for the 4B), per-task GGUFs ~0.4–0.5 GB Q4_K_M, CC BY-NC. Not better than the 4B absolute — upgrade candidate for the lightweight slot (vs Qwen3-Embedding-0.6B) or if co-residency with chat mode is ever needed (~2 GB freed).
+- llama.cpp auto-config agent post by flouisdev (2026-04-13) -- potential for dynamic mode switching optimization: https://forums.developer.nvidia.com/t/local-first-coding-agent-that-auto-configures-llama-cpp-for-maximum-hardware-performance/366366
+- nvidia-smi sudoers — FIXED 2026-04-30 (path was /usr/sbin/ not /usr/bin/, missing comma before sysctl). Also added journalctl and systemd-journal group.
+- Build-flag verification CLOSED 2026-05-09: confirmed `GGML_CUDA_F16=ON`, `GGML_CUDA_FA_ALL_QUANTS=ON`, `CMAKE_CUDA_ARCHITECTURES=87`, `Release` — already optimal.
