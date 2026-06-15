@@ -2736,4 +2736,19 @@ Decision (user): "Both, in sequence" — redesign+arm now, mlock/footprint inves
 
 **1.1, 1.2, 1.5 complete. Remaining Phase 1: 1.3 (CMA pre-start drop-in), 1.4 (power-mode A/B + reboot). Start-script edits (remove --mlock ± reduce ctx) to be batched + gated. Power mode currently MAXN_SUPER (mode 2).**
 
+#### Item 1.3 — CMA pre-start defrag drop-in: COMPLETE & VERIFIED (2026-06-15)
+- ctx decision (user): **keep 32768** (no reduction). So start-script change = remove no-op `--mlock` only (1.5).
+- Backed up 7 scripts → `~/llm-server/backups/scripts-mlock-2026-06-15/`. Removed `--mlock` flag from `start-qwen35-server.sh` + `start-experiment.sh` (only scripts that had it; nemotron/embedding/llm/inline never did). Added header note.
+- Wrote `/etc/systemd/system/myscript.service.d/cma-compact.conf`: `ExecStartPre=+/bin/sh -c 'sync; drop_caches; compact_memory'` (failure-tolerant `|| true` so a missing knob never blocks startup). daemon-reload + gated restart.
+- **Verified:** 3 `/etc` drop-ins (cma-compact, memory-limits, oom-protect); real llama-server cmdline has **0 `--mlock`**; ctx 32768 kept; ExecStartPre registered + journal `Starting→Started` (no failure = defrag ran as root); smoke test OK. (Note: a `pgrep -f "llama-server --model"` self-matched the ssh command and gave a false `--mlock` hit — confirmed clean via `ps -C llama-server`.)
+
+#### Item 1.4 — Power-mode A/B: COMPLETE, MAXN_SUPER kept (2026-06-15)
+- jetson_clocks NOT pinned (schedutil, dynamic) → clean A/B (resolves U6). Thermals 46–48 °C, no throttle.
+- **`bench.sh` A/B (de-throttled, no-mlock, CMA, ctx 32768):** MAXN_SUPER **gen 15.2–15.3 tok/s / pp ~157** vs 25W **gen 14.0–14.1 / pp 144**. MAXN ~8–9% faster on generation — well beyond the 3% tiebreak. On a dedicated, well-cooled always-on inference box the throughput wins; the smolhub "25W sweet spot" was an efficiency call for a different use. **Decision: keep MAXN_SUPER (mode 2).**
+- Restored `nvpmodel -m 2`; `/var/lib/nvpmodel/status = pmode:0002` (persists across reboot, overriding conf `DEFAULT=1`). MAXN bench also = post-1.3 no-regression confirmation (15.3, at baseline).
+- **REMAINING:** reboot validation (persistence + full-stack auto-recovery: watchdog enabled, myscript recovers, MAXN persists) — gated, pending user go/no-go. This is the last Phase 1 action.
+
+#### JetPack 7.2 upgrade plan (user request, 2026-06-15)
+Wrote `JETPACK_UPGRADE_PLAN.md` — detailed full-reflash migration plan (6.2.2/R36.5.0/CUDA12.6 → 7.2/r39.2/Ubuntu24.04/kernel6.8/CUDA13.2.1). Decision-gated (≥2026-06-25, pending power-mode TNSPEC fix + ecosystem). Off-device backup of 35 GB (34 GB models) is the critical first phase; reflash wipes NVMe. Re-applies all Phase 1 work + absorbs IMPLEMENTATION_PLAN Phase 2 (llama.cpp rebuild against CUDA 13.2, mandatory). Primary strategic payoff: kernel 6.8 may structurally fix the NvMap OOM-accounting root cause (the recurring theme of Entries 023–028).
+
 ---
