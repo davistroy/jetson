@@ -2755,3 +2755,26 @@ Rebooted (was up 8 wk 5 d). Full stack cold-booted cleanly: uptime 0 min, myscri
 Wrote `JETPACK_UPGRADE_PLAN.md` — detailed full-reflash migration plan (6.2.2/R36.5.0/CUDA12.6 → 7.2/r39.2/Ubuntu24.04/kernel6.8/CUDA13.2.1). Decision-gated (≥2026-06-25, pending power-mode TNSPEC fix + ecosystem). Off-device backup of 35 GB (34 GB models) is the critical first phase; reflash wipes NVMe. Re-applies all Phase 1 work + absorbs IMPLEMENTATION_PLAN Phase 2 (llama.cpp rebuild against CUDA 13.2, mandatory). Primary strategic payoff: kernel 6.8 may structurally fix the NvMap OOM-accounting root cause (the recurring theme of Entries 023–028).
 
 ---
+
+## Entry 030: Phase 2 — llama.cpp b8987 → b9652 Rebuild: KEEP (2026-06-15)
+**Date:** 2026-06-15 UTC
+**Operator:** Claude Code (implement-plan, gated live execution — IMPLEMENTATION_PLAN Phase 2)
+**Status:** REBUILD — system modified, KEPT after benchmark gate
+
+#### Window & build (2.1/2.2)
+- Maintenance window: backed up b8987 → `~/llm-server/backup-b8987-bin` (285 MB, 21 .so); MAINTENANCE flag (watchdog idle); stopped myscript (~40 min downtime total).
+- Checked out **b9652** (latest; 665 builds past b8987). **Build gotcha (record for the JetPack reflash rebuild too):** `cmake` configure failed `CMAKE_CUDA_COMPILER-NOTFOUND` because a non-login SSH shell lacks `/usr/local/cuda/bin` on PATH (systemd unit provides it). Fix: `export PATH=/usr/local/cuda/bin:$PATH; export CUDACXX=…/nvcc; -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc`. NOT a b9652 incompatibility.
+- Built clean with identical flags (`GGML_CUDA=ON, ARCH=87, F16, FA_ALL_QUANTS, NATIVE, Release`) at **-j4** (chosen over -j6: 5.1 Gi free + memory-heavy FA template instances). ~36 min, BUILD_EXIT:0. CUDA host compiler GNU 11.4, CUDA 12.6.68.
+
+#### Flag migration (2.3) — U1 RESOLVED, zero edits needed
+All 18 flags used across the 5 start scripts present in b9652 `--help`; argument forms verified compatible: `--flash-attn [on|off|auto]` (we use `on`), `--reasoning [on|off|auto]` (`off`), `--cache-type-k/v TYPE` (`q8_0`), `--n-gpu-layers N`. b9131 renames don't touch any flag we use; b9360 `LLAMA_ARG_*` moot (we use CLI not env). **No script changes.**
+
+#### Deploy + benchmark gate (2.4) — KEEP
+- CUDA inits fine under systemd ("full GPU offload (999 layers)", nvmap 3.59 GB — *less* than b8987's 3.95 GB). The `ggml_cuda_init: operation not supported` seen on a bare `--version` is the interactive-shell render-group artifact, not a defect.
+- **`bench.sh b9652`: gen 15.3–15.4 tok/s** (≥ 15.3 baseline), **RSS 4899 MB** (below b8987's ~5060). Journal clean (no CUDA/cublas errors over 30 min). pp metric erratic on repeat-identical prompts (27–30 vs ~150 cold) = **prompt-cache reuse artifact**, not a regression — gen is rock-solid across all 6 runs.
+- **Gate PASSED (gen ≥95%, RSS ≤+10%, clean journal) → KEPT b9652.** Window closed, inference back up.
+- Rollback asset `~/llm-server/backup-b8987-bin` retained for the 2-week stability window (delete ~2026-06-29 if stable). Rollback if ever needed: restore backup-b8987-bin → build/bin, `git checkout b8987`, restart.
+
+**Phase 2 COMPLETE. Next: IMPLEMENTATION_PLAN Phase 3 (MTP trial) — now unblocked (b9652 has MTP support, PR #22673).**
+
+---

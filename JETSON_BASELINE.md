@@ -9,11 +9,11 @@ Last recon: 2026-06-11
 | device | Jetson Orin Nano Super 8GB |
 | jetpack_version | 6.2.2 (R36.5.0) |
 | cuda_version | 12.6 |
-| llamacpp_version | b8987 |
+| llamacpp_version | b9652 |
 | current_model | Qwen3.5-4B-Q4_K_M |
 | baseline_gen_tok_s | 15.3 |
 | baseline_pp_tok_s | 166 |
-| baseline_rss_mb | 4969 |
+| baseline_rss_mb | 4899 |
 | context_size | 32768 |
 | gpu_layers | 999 (full offload) |
 | threads | 1 |
@@ -25,7 +25,7 @@ Last recon: 2026-06-11
 ## Version Tracking
 | Field | Value |
 |-------|-------|
-| llamacpp_latest_seen | b9596 |
+| llamacpp_latest_seen | b9652 |
 | jetpack_latest_orin_nano | 7.2 (L4T r39.2, released 2026-06-01) |
 | jetpack_next_expected | n/a — 7.2 shipped; watch for 7.2.x point release fixing power-mode TNSPEC bug |
 

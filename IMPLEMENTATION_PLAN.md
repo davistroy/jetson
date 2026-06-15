@@ -247,8 +247,9 @@ Do this LAST in Phase 1 so the baseline reflects the final envelope (de-throttle
 
 ### Work Items
 
-#### 2.1 Pre-rebuild benchmark, backup, and maintenance window
-**Status: PENDING**
+#### 2.1 Pre-rebuild benchmark, backup, and maintenance window ✅ Completed 2026-06-15
+**Status: COMPLETE 2026-06-15** <!-- b8987 backed up to backup-b8987-bin; ~40min window. See LAB_NOTEBOOK Entry 030. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 027 CS-B steps 1–2, Entry 015 precedent
 **Files Affected:**
@@ -273,8 +274,9 @@ Downtime clock starts here — target ≤ 90 min through 2.4. Inference consumer
 
 ---
 
-#### 2.2 Checkout and build latest tag with identical flags
-**Status: PENDING**
+#### 2.2 Checkout and build latest tag with identical flags ✅ Completed 2026-06-15
+**Status: COMPLETE 2026-06-15** <!-- b9652, identical flags, -j4, ~36min, BUILD_EXIT:0. Gotcha: needed CMAKE_CUDA_COMPILER/PATH for nvcc in non-login shell. See Entry 030. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 026 Check 2, Entry 027 CS-B step 3
 **Depends On:** 2.1
@@ -300,8 +302,9 @@ Escalate if the new tree requires a CMake/CUDA/gcc version beyond what JetPack 6
 
 ---
 
-#### 2.3 CLI flag migration gate across all five start scripts
-**Status: PENDING**
+#### 2.3 CLI flag migration gate across all five start scripts ✅ Completed 2026-06-15
+**Status: COMPLETE 2026-06-15** <!-- U1 RESOLVED: all 18 flags present + arg-forms compatible in b9652; ZERO script edits needed. See Entry 030. -->
+**Status (orig): PENDING**
 **Model Tier: opus**
 **Requirement Refs:** Entry 026 Check 2 (b9131 breaking change), Entry 027 U1
 **Depends On:** 2.2
@@ -333,8 +336,9 @@ Opus tier: a silently-wrong flag (e.g., a rename that changes a default) degrade
 
 ---
 
-#### 2.4 Deploy, benchmark, keep/rollback gate
-**Status: PENDING**
+#### 2.4 Deploy, benchmark, keep/rollback gate ✅ Completed 2026-06-15
+**Status: COMPLETE 2026-06-15** <!-- KEEP: gen 15.3-15.4 tok/s (>=baseline), RSS 4899MB (<b8987), clean journal. backup-b8987-bin retained ~2wk. See Entry 030. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 027 CS-B steps 7–8
 **Depends On:** 2.3
