@@ -2778,3 +2778,31 @@ All 18 flags used across the 5 start scripts present in b9652 `--help`; argument
 **Phase 2 COMPLETE. Next: IMPLEMENTATION_PLAN Phase 3 (MTP trial) — now unblocked (b9652 has MTP support, PR #22673).**
 
 ---
+
+## Entry 031: Phase 3 — MTP Trial, Hour-1 Gate (2026-06-15)
+**Date:** 2026-06-15 UTC
+**Operator:** Claude Code (implement-plan, Phase 3 / CS-C)
+**Status:** TRIAL — MTP live in experiment slot (port 8080); hour-1 gate PASSED (mixed-positive); awaiting soak/promote/revert decision
+
+#### 3.1 research (resolved)
+- **Leak: GO.** The leak matching our exact `-ctk q8_0` MTP-prefill config (#23635) is FIXED in b9652 (#23907 Jun 3 + #24108 Jun 4; confirmed fixed @build 9518 < 9652). No workaround flag. Residual ~100 MB one-time PP.
+- **Acceptance: VERIFY ON-DEVICE.** Qwen3.5-4B is hybrid Gated-DeltaNet (24 GDN recurrent + 8 attention layers) — the architecture class #23322 flags for degraded MTP acceptance + full-prompt-reprocessing. Invocation: `--spec-type draft-mtp --spec-draft-n-max 3`, MTP head embedded in single GGUF, draft KV kept f16 (`-ctkd/-ctvd f16`). Acceptance observable via response `timings.draft_n`/`draft_n_accepted`.
+- Downloaded `unsloth/Qwen3.5-4B-MTP-GGUF` Q4_K_M (2.7 GB) → `~/llm-server/models/Qwen3.5-4B-MTP-Q4_K_M.gguf`. Rewrote `start-experiment.sh` (fixes the deleted-model landmine; mirrors qwen35 + MTP flags; `--log-disable` OMITTED for observability; no `--mlock`). Old script backed up.
+
+#### 3.2 deploy + hour-1 gate — PASSED (mixed)
+MTP loaded clean (MTP context ~202 MiB, draft-mtp n_max=3 n_embd=2560 f16 draft KV, full offload, no errors/OOM). nvmap 4.13 GB (+0.54 vs plain b9652).
+**Acceptance + throughput (baseline 15.3 tok/s):**
+| prompt | tok/s | vs base | acceptance |
+|--------|-------|---------|-----------|
+| code | 18.6 | +22% | 68.7% |
+| reasoning | 22.5 | +47% | 90.3% |
+| Q&A | 16.6 | +8.5% | 56.7% |
+| prose | 16.5 | +7.8% | 58.5% |
+| long 512tok | 15.2 | ~0% | 49.4% |
+
+Cumulative draft acceptance ~61% (836 acc / 1376 gen). RSS **5554 MB** (+655 vs plain 4899; ~846 MB under the 6400M cap), avail 1.2 Gi.
+**KEY OBSERVATION:** the `forcing full prompt re-processing due to lack of cache data (SWA/hybrid/recurrent memory)` warning FIRES on each fresh request (erases ~50 MiB checkpoint each time). This is a Qwen3.5-4B + b9652 recurrent-architecture property (present with/without MTP, now visible since logging is on) — cheap for short prompts, but costly for long-context/multi-turn (limits KV reuse → re-processes context per turn).
+**No hard abort tripped** (gains real, acceptance mostly >50%, RSS < cap, no errors). Verdict: workload-dependent win — strong on code/reasoning/short-Q&A, neutral on long generation. Output is lossless (speculative decode verifies tokens) — only speed varies.
+**Memory caveat:** +655 MB footprint on a chronically tight box puts RSS within ~850 MB of MemoryMax; soak must confirm RSS doesn't creep toward the cap (would trigger cgroup-OOM restart). Decision (soak / promote-now / revert / tune) pending user — production endpoint is currently serving MTP.
+
+---
