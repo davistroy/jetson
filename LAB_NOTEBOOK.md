@@ -2713,6 +2713,16 @@ JetPack 7.2 upgrade (separate decision ~2026-06-25+; inherits CS-B's migrated sc
 - NEW candidate work item (root-cause): fix `LimitMEMLOCK` so `--mlock` works — BUT footprint analysis first: pinning the 2.6 GB model doesn't reduce total ~7 GB demand, it changes WHAT swaps; may need a paired `--ctx-size` reduction (is 32K needed?) to create real headroom. This connects directly to the OOM history and may be higher-leverage than the watchdog alone.
 - No immediate OOM risk: 16 GB file swap is an untouched backstop; box stable 3 days. Safe to pause and decide.
 
-**State:** 1.1 live on device (not git — device config). Watchdog files on device, INACTIVE. Branch `feature/jetson-phase1-platform-envelope`. Awaiting direction on 1.2 redesign + mlock/footprint scope before resuming.
+**State (superseded — see 1.2 RESOLUTION below):** 1.1 live; watchdog INACTIVE pending decision.
+
+#### Item 1.2 RESOLUTION — Redesigned around file-swap + ARMED & VERIFIED (2026-06-15)
+Decision (user): "Both, in sequence" — redesign+arm now, mlock/footprint investigation next.
+- **Trigger redesigned (Entry 028 Finding 2):** CRITICAL = file-swap-used > 1024 MB **AND** MemAvailable < 150 MB, sustained 3 polls (90 s). The `AND MemAvailable` guard prevents firing on stale post-event swap. File-swap is the clean signal: 0 B in normal operation (verified — 16 GB file swap PRIO −2 untouched; zram PRIO 5 ~3.2 GB/85% is the normal lean). WARN at file-swap > 128 MB (zram overflowing) → rate-limited snapshot. Heartbeat schema extended to 7 cols (added file_swap_used_mb, zram_swap_used_mb).
+- **Validated:** new-trigger detection + age guard (claude run, no restart); **induced fire via root service** → snapshot + real myscript restart (ActiveEnter→09:55:39); **startup-transient guard** suppressed 3 post-restart polls (age 8/16/24 s < 180 s test-60 s); cooldown guard (earlier test). Non-root claude cannot restart (interactive-auth denied) = safe.
+- **ARMED:** `systemctl enable --now memory-watchdog` → active+enabled, OOMScoreAdjust=−1000, MemoryMax=128M, no test override remains, armed instance quiet (file-swap 0). Heartbeat accumulating.
+- **BONUS root-cause confirmation:** across the induced restart, **MemAvailable 13 MB → 3333 MB → ~2074 MB and zram 3202 MB → 223 MB** — a myscript restart reclaims ~3.3 GB. Confirms the chronic near-0 state is myscript's accumulated 3-day footprint, and the watchdog's restart intervention genuinely reclaims memory (validated circuit-breaker). Box now in healthy ~2 GB-available state.
+- **1.1 + 1.2 COMPLETE.** Box is defended against the next storm. Next: mlock/footprint investigation (new item 1.5), then 1.3 (CMA) + 1.4 (power mode/reboot).
+
+**State:** 1.1 + 1.2 live on device (not git — device config). Watchdog ARMED. Branch `feature/jetson-phase1-platform-envelope`. Proceeding to mlock/footprint investigation (read-only; any config change will be gated).
 
 ---
