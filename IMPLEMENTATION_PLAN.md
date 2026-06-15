@@ -72,8 +72,9 @@ Critical path: Phase 1 (one evening) → 1–2 day heartbeat settle → Phase 2 
 
 ### Work Items
 
-#### 1.1 Cgroup limit rework: remove MemoryHigh, raise MemoryMax to 6400M
-**Status: PENDING**
+#### 1.1 Cgroup limit rework: remove MemoryHigh, raise MemoryMax to 6400M ✅ Completed 2026-06-15
+**Status: COMPLETE 2026-06-15** <!-- verified live; bench 15.2-15.3 tok/s. See LAB_NOTEBOOK Entry 028. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 026 Rec 2, Entry 027 CS-A(A1)
 **Files Affected:**
@@ -104,8 +105,9 @@ Entry 026/June 7 forensics proved MemoryHigh/MemoryMax do not prevent global OOM
 
 ---
 
-#### 1.2 Memory watchdog: deploy armed with guards + induced-fire verification
-**Status: PENDING**
+#### 1.2 Memory watchdog: deploy armed with guards + induced-fire verification ✅ Completed 2026-06-15
+**Status: COMPLETE 2026-06-15** <!-- DEVIATION: trigger redesigned from MemAvailable to FILE-SWAP (Entry 028 found box idles at ~0 MemAvailable on zram; 350/700MB thresholds would restart-loop). Armed, induced-fire + guards verified, reboot-durable. -->
+**Status (orig): PENDING**
 **Model Tier: opus**
 **Requirement Refs:** Entry 026 Rec 1(a), Entry 027 CS-A(A2)
 **Depends On:** 1.1
@@ -140,8 +142,9 @@ Opus tier: live production box, and the failure mode of a bad guard is a restart
 
 ---
 
-#### 1.3 CMA pre-start compaction drop-in
-**Status: PENDING**
+#### 1.3 CMA pre-start compaction drop-in ✅ Completed 2026-06-15
+**Status: COMPLETE 2026-06-15** <!-- cma-compact.conf ExecStartPre defrag, failure-tolerant; verified ran as root. Batched with --mlock removal (item 1.5). See LAB_NOTEBOOK Entry 028. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 026 Rec 1(c), Entry 027 CS-A(A2), forum t/370049
 **Depends On:** 1.1
@@ -167,8 +170,9 @@ If `drop_caches` write fails inside the systemd sandbox, check for `ProtectKerne
 
 ---
 
-#### 1.4 Power mode decision by measurement + new official baseline
-**Status: PENDING**
+#### 1.4 Power mode decision by measurement + new official baseline ✅ Completed 2026-06-15
+**Status: COMPLETE 2026-06-15** <!-- A/B: MAXN_SUPER 15.3 vs 25W 14.0 tok/s -> kept MAXN (~8% > 3% tiebreak; data overrode community 25W prior). Reboot-persistent. Reboot validation PASS. See LAB_NOTEBOOK Entry 028. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 026 Rec 5, Entry 027 CS-A(A3), smolhub benchmark 2026-05-29
 **Depends On:** 1.1, 1.2, 1.3

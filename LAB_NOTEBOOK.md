@@ -2748,6 +2748,9 @@ Decision (user): "Both, in sequence" — redesign+arm now, mlock/footprint inves
 - Restored `nvpmodel -m 2`; `/var/lib/nvpmodel/status = pmode:0002` (persists across reboot, overriding conf `DEFAULT=1`). MAXN bench also = post-1.3 no-regression confirmation (15.3, at baseline).
 - **REMAINING:** reboot validation (persistence + full-stack auto-recovery: watchdog enabled, myscript recovers, MAXN persists) — gated, pending user go/no-go. This is the last Phase 1 action.
 
+#### Item 1.4 reboot validation — PASS; PHASE 1 COMPLETE (2026-06-15)
+Rebooted (was up 8 wk 5 d). Full stack cold-booted cleanly: uptime 0 min, myscript active + full GPU offload (999), **memory-watchdog auto-started** (enabled worked, PID 1084, default thresholds), **MAXN_SUPER persisted** (overrode conf DEFAULT=1 via /var/lib/nvpmodel/status), available 2.1→6.5 Gi fresh. Post-boot verify: oom_score_adj −900 live, MemoryHigh=infinity / MemoryMax=6400M / OOMScoreAdjust=−900, 3 /etc drop-ins intact, watchdog polling + heartbeat writing. **All 5 Phase 1 items (1.1–1.5) COMPLETE and reboot-durable. Box is hardened + self-recovering.** Net Phase 1 throughput unchanged at baseline 15.3 tok/s (MAXN). Next: IMPLEMENTATION_PLAN Phase 2 (llama.cpp rebuild + MTP) — maintenance window, not yet scheduled.
+
 #### JetPack 7.2 upgrade plan (user request, 2026-06-15)
 Wrote `JETPACK_UPGRADE_PLAN.md` — detailed full-reflash migration plan (6.2.2/R36.5.0/CUDA12.6 → 7.2/r39.2/Ubuntu24.04/kernel6.8/CUDA13.2.1). Decision-gated (≥2026-06-25, pending power-mode TNSPEC fix + ecosystem). Off-device backup of 35 GB (34 GB models) is the critical first phase; reflash wipes NVMe. Re-applies all Phase 1 work + absorbs IMPLEMENTATION_PLAN Phase 2 (llama.cpp rebuild against CUDA 13.2, mandatory). Primary strategic payoff: kernel 6.8 may structurally fix the NvMap OOM-accounting root cause (the recurring theme of Entries 023–028).
 
