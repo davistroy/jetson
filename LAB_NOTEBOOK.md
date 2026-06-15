@@ -2725,4 +2725,15 @@ Decision (user): "Both, in sequence" — redesign+arm now, mlock/footprint inves
 
 **State:** 1.1 + 1.2 live on device (not git — device config). Watchdog ARMED. Branch `feature/jetson-phase1-platform-envelope`. Proceeding to mlock/footprint investigation (read-only; any config change will be gated).
 
+#### Item 1.5 (NEW) — mlock/footprint investigation: COMPLETE (analysis), reverses the "fix mlock" assumption
+**Data (read-only, 2026-06-15, fresh after the 13:55 induced restart):** `Max locked memory = 65536 bytes (64 KB)`, `LimitMEMLOCK=65536` on the unit → mlock of the 2.6 GB model is physically impossible; `VmLck: 0` confirms `--mlock` is a silent no-op (and always has been — matches the June 7 dump's `Mlocked:0kB`). Fresh: VmRSS 4.9 GB, VmSwap 0, available 1.9 Gi, zram ~empty, cgroup memory.current 6.0 GiB (incl. ~2.4 GB reclaimable model-file cache; ~0.25 GiB under MemoryMax). Model on GPU via full offload (nvmap 3.95 GB unified). n_ctx 32768.
+
+**Conclusions:**
+1. **Do NOT "fix" mlock (do NOT add LimitMEMLOCK).** With full GPU offload on unified memory the model is GPU-resident; throughput is already at the 15.3 tok/s baseline with mlock non-functional → mlock gives zero throughput benefit here. "Fixing" it would pin a largely redundant 2.6 GB CPU copy into UNSWAPPABLE RAM, cutting the swappable headroom the box needs to absorb transient bursts → would likely WORSEN OOM resilience, the opposite of the goal. The plan's implicit "fix mlock" framing is reversed by the data.
+2. **REMOVE `--mlock` from the start scripts** — it is a misleading no-op; removing it is truth-in-config and marginally improves resilience (model pages stay swap-eligible). Reversible; batched into the next gated start-script edit + restart.
+3. **The real footprint lever is `--ctx-size` (32K q8_0 KV).** It is the largest growable allocation and the driver of the fresh-1.9 Gi → 0 degradation over 3 days. Reducing it (e.g., 32K → 16K/8K) would create durable headroom and cut the chronic swap reliance. **DECISION NEEDED — workload-dependent:** what max context do the chat (qwen35) consumers actually need? (Embedding mode is a separate script/port, unaffected.) Pending user input.
+4. The armed watchdog (1.2) already covers the acute failure mode; the ctx decision is the durable fix for the chronic tightness.
+
+**1.1, 1.2, 1.5 complete. Remaining Phase 1: 1.3 (CMA pre-start drop-in), 1.4 (power-mode A/B + reboot). Start-script edits (remove --mlock ± reduce ctx) to be batched + gated. Power mode currently MAXN_SUPER (mode 2).**
+
 ---
