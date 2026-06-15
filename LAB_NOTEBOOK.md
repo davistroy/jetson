@@ -2689,3 +2689,30 @@ U1 b9131 rename specifics (resolve: --help diff, CS-B step 4) · U2 MTP leak-wor
 JetPack 7.2 upgrade (separate decision ~2026-06-25+; inherits CS-B's migrated scripts), VMM local patch (baseline trigger watches), TensorRT-Edge-LLM (post-JP7.2), embedding changes, Gemma 4 E2B.
 
 ---
+
+## Entry 028: Phase 1 Execution — Item 1.1 Done; Item 1.2 Surfaced mlock + Threshold Root-Cause (2026-06-15)
+**Date:** 2026-06-15 UTC
+**Operator:** Claude Code (implement-plan, gated live execution on branch feature/jetson-phase1-platform-envelope)
+**Status:** EXECUTION — 1.1 applied + verified; 1.2 PAUSED pending redesign + decision
+
+#### Item 1.1 — Cgroup rework: COMPLETE & VERIFIED (2026-06-12)
+- Backed up all 4 drop-ins → `~/llm-server/backups/envelope-2026-06-11/`.
+- Replaced `memory-limits.conf` with `MemoryMax=6400M` only (MemoryHigh removed); `rm` the two `/run/systemd/system.control` set-property drop-ins; daemon-reload + restart.
+- Verified live: `MemoryHigh=infinity`, `MemoryMax=6710886400`, `OOMScoreAdjust=-900` preserved; only the 2 `/etc` drop-ins remain; full GPU offload (999 layers, 6202 MB free post-evictor); oom_score_adj −900 live on MainPID.
+- **`bench.sh dethrottled`: gen 15.2–15.3 tok/s (medium+long), pp 153–170 tok/s, tight variance** — at historical baseline. **U4 verdict:** the recon's 14.17 tok/s was a 6-token cold sample and did NOT reproduce; de-throttled config shows zero throughput penalty + reclaim headroom gained. RSS 5062 MB at bench time.
+
+#### Item 1.2 — Watchdog deployed + validated, but ARMING PAUSED — two findings
+**Watchdog mechanics VALIDATED** (script `~/llm-server/memory-watchdog.sh`, unit `/etc/systemd/system/memory-watchdog.service`, daemon-reloaded, inactive): MemAvailable reader correct; snapshot writes; 4 guards work; cooldown suppresses repeat fires; running as non-root `claude` cannot restart (interactive-auth denied) = safe. Unit hardened OOMScoreAdjust=−1000, MemoryMax=128M (raised from planned 64M so the watchdog can't be OOM-killed inside its own cgroup while forking ps/dmesg during a storm).
+
+**FINDING 1 — `--mlock` has NEVER worked (root-cause class, ties to Entry 026).** Live `/proc/<llama>/status`: `VmLck: 0 kB`, `VmSwap: 3047672 kB` (3.05 GB swapped), `VmRSS: 3955692 kB`. The start scripts pass `--mlock` but `myscript.service` sets no `LimitMEMLOCK`, so the systemd default (8 MB) silently caps it — the 2.6 GB model is never pinned and is swap-eligible. **Consistent with the June 7 OOM dump line `Mlocked:0kB`** — the model has always been unpinned, contributing to the swap thrash under pressure. cgroup: memory.current 3.94 GB, memory.swap.current 3.12 GB.
+
+**FINDING 2 — box steady state ≈ 0 MB MemAvailable; the planned thresholds are miscalibrated.** Live: `MemAvailable: 0–11 MB`, MemFree 348 MB, all 6 zram devices ~85% full (~3.1 GB), 16 GB file swap (PRIO −2) at 0 B (untouched backstop). The Qwen3.5-4B + 32K q8_0 KV + full-offload workload needs ~7 GB against 7.4 GB total → permanent reliance on zram. So MemAvailable normally sits at/near 0 — **arming the watchdog at crit=350/warn=700 MB would restart-loop the server.** The real danger signal is swap exhaustion (zram saturated AND file swap filling fast), not MemAvailable.
+
+**Implications for the plan:**
+- Item 1.2 watchdog trigger must be REDESIGNED around swap-exhaustion (e.g., file-swap-used > floor AND total-swap-free < floor AND MemAvailable ~0 sustained), not MemAvailable thresholds. Heartbeat already captures the right fields; thresholds need real-data calibration.
+- NEW candidate work item (root-cause): fix `LimitMEMLOCK` so `--mlock` works — BUT footprint analysis first: pinning the 2.6 GB model doesn't reduce total ~7 GB demand, it changes WHAT swaps; may need a paired `--ctx-size` reduction (is 32K needed?) to create real headroom. This connects directly to the OOM history and may be higher-leverage than the watchdog alone.
+- No immediate OOM risk: 16 GB file swap is an untouched backstop; box stable 3 days. Safe to pause and decide.
+
+**State:** 1.1 live on device (not git — device config). Watchdog files on device, INACTIVE. Branch `feature/jetson-phase1-platform-envelope`. Awaiting direction on 1.2 redesign + mlock/footprint scope before resuming.
+
+---
