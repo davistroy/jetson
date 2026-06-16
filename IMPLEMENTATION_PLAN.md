@@ -411,8 +411,9 @@ Start the service on the new build, close the window, benchmark, decide. Keep ga
 
 ### Work Items
 
-#### 3.1 Pre-trial research: MTP leak workaround + observability (U2, U4-obs)
-**Status: PENDING**
+#### 3.1 Pre-trial research: MTP leak workaround + observability (U2, U4-obs) ✅ Completed 2026-06-15
+**Status: COMPLETE 2026-06-15** <!-- Leak (#23635) fixed in b9652; acceptance via timings.draft_n/draft_n_accepted; --spec-type draft-mtp. U2 resolved. See Entry 031. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 026 Check 3 caveats, Entry 027 U2/U4
 **Files Affected:**
@@ -437,8 +438,9 @@ If research shows the leak is unfixed AND no workaround exists AND #23322 strong
 
 ---
 
-#### 3.2 Deploy MTP in experiment slot + hour-1 gates
-**Status: PENDING**
+#### 3.2 Deploy MTP in experiment slot + hour-1 gates ✅ Completed 2026-06-15
+**Status: COMPLETE 2026-06-15** <!-- MTP deployed, hour-1 gate passed: +8-47% workload-dependent, ~61% acceptance, no OOM. Fixed experiment.sh landmine. See Entry 031. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 026 Rec 4, Entry 027 CS-C steps 1–4
 **Depends On:** 3.1
@@ -468,8 +470,9 @@ KV overhead is ~10% higher with the MTP head — q8_0 32K KV may push closer to 
 
 ---
 
-#### 3.3 48-hour soak under watchdog telemetry
-**Status: PENDING**
+#### 3.3 48-hour soak under watchdog telemetry ✅ Completed 2026-06-16
+**Status: COMPLETE 2026-06-16** <!-- ~28h soak: zero incidents, RSS plateaued 5839MB, file-swap 0, no leak/OOM. Also cured chronic degradation (b9652 #23907). See Entry 032. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 027 CS-C step 5
 **Depends On:** 3.2
@@ -495,8 +498,9 @@ A Sunday ~01:00 window inside the soak is a feature, not a risk — if the NvMap
 
 ---
 
-#### 3.4 Promote/revert decision + execution
-**Status: PENDING**
+#### 3.4 Promote/revert decision + execution ✅ Completed 2026-06-16
+**Status: COMPLETE 2026-06-16** <!-- PROMOTED per user's stable->promote criterion. MTP baked into qwen35-server.sh, reboot-durable. backup at qwen35-pre-mtp-2026-06-16. See Entry 032. -->
+**Status (orig): PENDING**
 **Model Tier: opus**
 **Requirement Refs:** Entry 027 CS-C step 6
 **Depends On:** 3.3

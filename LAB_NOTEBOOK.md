@@ -2806,3 +2806,28 @@ Cumulative draft acceptance ~61% (836 acc / 1376 gen). RSS **5554 MB** (+655 vs 
 **Memory caveat:** +655 MB footprint on a chronically tight box puts RSS within ~850 MB of MemoryMax; soak must confirm RSS doesn't creep toward the cap (would trigger cgroup-OOM restart). Decision (soak / promote-now / revert / tune) pending user — production endpoint is currently serving MTP.
 
 ---
+
+## Entry 032: Phase 3 — MTP Soak PASSED + PROMOTED to default (2026-06-16)
+**Date:** 2026-06-16 UTC
+**Operator:** Claude Code (implement-plan, Phase 3 / CS-C, items 3.3–3.4)
+**Status:** PROMOTED — MTP is now the default qwen35 mode. PHASE 3 COMPLETE.
+
+#### 3.3 soak — ~28h, PASSED
+User chose "run the soak" (criterion: stable → promote). MTP ran in the experiment slot 2026-06-15 15:47 → 2026-06-16 ~20:13 UTC (~28h):
+- **Zero incidents:** NRestarts=0, no OOM, no cgroup-max kill, no watchdog CRITICAL action. Service up continuously.
+- **RSS plateaued at 5839 MB**, flat for the final ~10h — the #23635 leak fix holds, no creep.
+- **file-swap stayed 0, zram empty** throughout — no swap pressure.
+- cgroup memory.current rode near MemoryMax (6398/6400 MiB) early (reclaiming cache, as designed), settled to ~5850 MiB (~550 MiB headroom).
+- **Bonus:** b9652's deterministic KV reservation (#23907) appears to have ALSO cured the old chronic degradation — the box held ~800 MB available steadily through the soak vs the old b8987 crawl to ~0 (Entry 028). Memory behavior is materially better than pre-Phase-2.
+- Fresh acceptance/throughput at 28h = identical to hour-1 (code 18.4, reason 22.4, qa 16.5, prose 16.4, long 15.1 tok/s) — stable, reproducible.
+
+#### 3.4 decision — PROMOTE (per user's stable→promote criterion)
+Memory stayed stable → promoted per the user's stated soak criterion. MTP is lossless (never slower than baseline worst-case; speculative decode verifies tokens) so promotion has no downside beyond the +~940 MB footprint, which the soak proved stable.
+- Backed up plain `start-qwen35-server.sh` → `~/llm-server/backups/qwen35-pre-mtp-2026-06-16/`. Rewrote it with the validated MTP config (MTP GGUF + `--spec-type draft-mtp --spec-draft-n-max 3 -ngld 999 -ctkd/-ctvd f16`, logging ON, no --mlock). `mode.txt` → qwen35, restart.
+- **Verified:** qwen35 mode loads MTP ("speculative decoding context initialized", full offload); reasoning prompt 21.8 tok/s @ 88% acceptance; service + watchdog active; RSS 5185 MB, avail 1.6 Gi. Reboot-durable (mode.txt=qwen35 + qwen35-server.sh carries the config).
+- **Net production gain:** workload-dependent +8–47% decode (strong on code/reasoning/short-Q&A, neutral on long-gen), lossless output. Experiment slot now free.
+- **Caveats carried forward:** (1) recurrent-memory "full prompt re-processing" churn limits cache reuse on long multi-turn — a Qwen3.5-4B/b9652 property, watch if multi-turn latency matters; (2) RSS ~5839 plateau is ~550 MB under the cap — watchdog + MemoryMax remain the backstop; (3) rollback = restore `qwen35-pre-mtp-2026-06-16/` (and optionally swap model back to `Qwen_Qwen3.5-4B-Q4_K_M.gguf`).
+
+**PHASE 3 COMPLETE. IMPLEMENTATION_PLAN Phases 1–3 all done. Phase 4 (Jackrong fine-tune trials) remains optional.**
+
+---
