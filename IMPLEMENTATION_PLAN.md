@@ -672,7 +672,8 @@ Close the confirmed gaps surfaced by the 2026-06-30 healthcheck **without physic
 
 #### 5.1 — Service-surface reduction (H1)
 
-**Status: PENDING**
+**Status: COMPLETE 2026-06-30** <!-- rpcbind/:111 removed, snapd purged, ModemManager/bluetooth/nvargus/containerd disabled; reboot-durable; mem available 477→2009 MB, 0 failed units. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 033 (boot-OOM units), Entry 034 H1; recommendations P0-5 + P1-2
 **Depends On:** None
@@ -700,7 +701,8 @@ Reclaim ~120–150 MB RAM (real OOM headroom on the 8 GB box) and shrink attack 
 
 #### 5.2 — Upgrade control + package pinning (H2)
 
-**Status: PENDING**
+**Status: COMPLETE 2026-06-30** <!-- holds via dpkg --set-selections (apt-mark not in sudoers): tailscale + nvidia-l4t-core/-cuda; 52unattended-custom Automatic-Reboot=false. Reboot-durable. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 033 (silent-upgrade vector), Entry 034 H2; recommendation P0-4
 **Depends On:** None (do before 5.3 so the fTPM fix can't be reverted by an upgrade)
@@ -725,7 +727,8 @@ Remove the silent-upgrade vector that can swap/restart `tailscaled` into the fTP
 
 #### 5.3 — Tailscale fTPM resilience (H3)
 
-**Status: PENDING**
+**Status: COMPLETE 2026-06-30 (U8 caveat)** <!-- FLAGS="--encrypt-state=false" in /etc/default/tailscaled; restart clean, 0 panics, direct tailnet path; reboot-durable. Cannot prove it defeats the panic until fTPM faults again (U8) — 5.7 alerting is the safety net. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 033 (fTPM panic root cause), Entry 034 H3
 **Depends On:** 5.2 (holds keep the fix from being upgraded away)
@@ -750,7 +753,8 @@ Remove the silent-upgrade vector that can swap/restart `tailscaled` into the fTP
 
 #### 5.4 — Service robustness: crash-loop escalation (H4)
 
-**Status: PENDING**
+**Status: COMPLETE 2026-06-30** <!-- crash-escalate.conf: StartLimitIntervalSec=300, Burst=8, Action=reboot; oom-protect.conf preserved (4 drop-ins intact); reboot-durable. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** JETSON_CONFIG gotcha (crash-loops fragment CUDA mem), Entry 034 H4; recommendation P1-3
 **Depends On:** None
@@ -774,7 +778,8 @@ A genuine wedge currently retries every 5 s forever, fragmenting CUDA memory (do
 
 #### 5.5 — Performance: pinned clocks + noatime (H5)
 
-**Status: PENDING**
+**Status: COMPLETE 2026-06-30** <!-- A/B: pinned clocks cut cold-start latency 1.62→1.20s (~26%), warm equal, GPU 55°C. KEPT via jetson-clocks.service (enabled, after nvpmodel). noatime live+fstab; both reboot-durable. -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 034 H5 / P2-1, P2-2; existing baseline (MAXN_SUPER kept)
 **Depends On:** None
@@ -801,7 +806,8 @@ GPU idles at 306/1020 MHz with on-demand DVFS; first-token latency eats a clock 
 
 #### 5.6 — Access control: API auth + firewall + SSH key-only (H6)
 
-**Status: PENDING**
+**Status: BLOCKED 2026-06-30 — needs decisions** <!-- (1) FIREWALL: ufw NOT installed AND NOT in claude NOPASSWD sudoers — cannot configure autonomously without broadening the sudo grant (a security tradeoff = Troy's call). (2) API-KEY: gated on U9 — enforcing it breaks contact-center-lab's next run unless the consumer is updated where it actually runs (localhost in config = unclear). (3) SSH key-only: doable but no `sshd -t` validation (sshd not in sudoers) and the plan sequences it after the firewall. -->
+**Status (orig): PENDING**
 **Model Tier: opus** *(highest blast radius; cross-repo; self-lockout risk)*
 **Requirement Refs:** Entry 034 H6 / P0-2, P0-3, P1-4; **ADR-0001**
 **Depends On:** 5.1 (rpcbind gone before firewalling)
@@ -831,7 +837,8 @@ Per ADR-0001, defense-in-depth on the confirmed-open LLM API. Staged, lockout-sa
 
 #### 5.7 — Observability instrumentation (H7)
 
-**Status: PENDING**
+**Status: BLOCKED 2026-06-30 — needs alert destination (U11)** <!-- Jetson instrumentation is autonomous, but the VALUE (an alert when the node drops) needs (a) a notification destination — Troy's existing Grafana contact point / ntfy / push, or a Claude-Code-Remote scheduled trigger — and (b) editing the existing open-brain Prometheus/Grafana on homeserver (back up config first). Deferred pending the channel choice; also pairs with 5.6's firewall (so any new exporter port isn't LAN-exposed). -->
+**Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 033 (2-day silent outage — the headline lesson), Entry 034 P0-1
 **Depends On:** 5.1 (defines the expected-services baseline to assert)

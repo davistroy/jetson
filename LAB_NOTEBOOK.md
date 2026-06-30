@@ -2899,6 +2899,16 @@ Healthcheck (Entry 033) → user asked for stability/security/performance recomm
 #### Key unknowns carried
 U8 (fTPM fix unverifiable now, High), U9 (prod consumer location), U10 (01:00 trigger), U11 (alert destination, High), U12 (BT/camera usage). ADR-0001 records the LLM-exposure decision (0.0.0.0+firewall+api-key over interface-bind/proxy/do-nothing).
 
-**Next: execute Phase 5 (await go), starting with the safe set (5.1, 5.2, 5.4) and handing 5.6 to a supervised run if preferred.**
+#### EXECUTION (2026-06-30, same day) — 5.1–5.5 DONE, 5.6–5.7 BLOCKED
+Backups in `~/llm-server/backups/hardening-2026-06-30/`. All applied via the `claude` NOPASSWD set (no privilege broadening). Reboot-validated.
+- **5.1 DONE:** rpcbind/:111 removed, snapd purged, ModemManager/bluetooth/nvargus/containerd disabled. **Mem available 477 → 2009 MB**, 0 failed units.
+- **5.2 DONE:** holds via `dpkg --set-selections` (apt-mark not in sudoers): `tailscale`, `nvidia-l4t-core`, `nvidia-l4t-cuda`; `52unattended-custom` Automatic-Reboot=false.
+- **5.3 DONE (U8 caveat):** `FLAGS="--encrypt-state=false"` in `/etc/default/tailscaled`; restart clean, 0 panics, direct tailnet path. Cannot prove it defeats the panic until the fTPM faults again.
+- **5.4 DONE:** `crash-escalate.conf` StartLimit 300s/8/reboot; `oom-protect.conf` preserved.
+- **5.5 DONE:** A/B showed pinned clocks cut cold-start latency **1.62→1.20s (~26%)**, GPU 55 °C → KEPT (`jetson-clocks.service` enabled); `noatime` live + fstab.
+- **5.6 BLOCKED:** firewall — **ufw not installed AND not in the claude sudoers** (can't configure without broadening the sudo grant = Troy's call); api-key — gated on U9 (would break contact-center-lab's next run); ssh key-only — doable but no `sshd -t` and sequenced after the firewall.
+- **5.7 BLOCKED:** needs a notification destination (U11) + editing the existing open-brain Prometheus/Grafana (back up first), or a Claude-Code-Remote trigger.
+
+**Sudoers boundary (new finding):** `claude` NOPASSWD covers systemctl/tee/apt-get/dpkg/jetson_clocks/nvpmodel but NOT ufw/apt-mark/sshd/systemd-run — this is the real limit on "autonomous." 5.6/5.7 await Troy's decisions.
 
 ---
