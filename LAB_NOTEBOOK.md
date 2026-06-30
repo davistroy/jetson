@@ -2909,6 +2909,15 @@ Backups in `~/llm-server/backups/hardening-2026-06-30/`. All applied via the `cl
 - **5.6 BLOCKED:** firewall — **ufw not installed AND not in the claude sudoers** (can't configure without broadening the sudo grant = Troy's call); api-key — gated on U9 (would break contact-center-lab's next run); ssh key-only — doable but no `sshd -t` and sequenced after the firewall.
 - **5.7 BLOCKED:** needs a notification destination (U11) + editing the existing open-brain Prometheus/Grafana (back up first), or a Claude-Code-Remote trigger.
 
-**Sudoers boundary (new finding):** `claude` NOPASSWD covers systemctl/tee/apt-get/dpkg/jetson_clocks/nvpmodel but NOT ufw/apt-mark/sshd/systemd-run — this is the real limit on "autonomous." 5.6/5.7 await Troy's decisions.
+**Sudoers boundary (new finding):** `claude` NOPASSWD covers systemctl/tee/apt-get/dpkg/jetson_clocks/nvpmodel but NOT ufw/apt-mark/sshd/systemd-run — this is the real limit on "autonomous."
+
+#### EXECUTION pt.2 (2026-06-30, after Troy's go on all of 5.6/5.7) — 5.6 DONE, 5.7 PARTIAL
+- **5.6 DONE (api-key + firewall + ssh):**
+  - **api-key:** generated (64-hex), stored Bitwarden `dev/jetson/llm-api-key` (id 7f2c123d), `--api-key-file ~/llm-server/.apikey` added to all 5 start scripts. Verified: unauth→**401** (incl. from a LAN host), auth→**200**, `/health` stays public. **U9 resolved:** contact-center-lab `default_backend` is **dgx_spark, not the Jetson** (Jetson is the non-default `localhost`/llm-mode backend) → enforcement did NOT break production. cc-lab `pipeline/config.yaml` localhost backend wired to `${JETSON_LLM_API_KEY}` (loader uses `os.environ.get(...,"")`, never raises) — **working-tree edit only; cc-lab repo has a huge pre-existing dirty diff so I did not commit it**.
+  - **firewall:** installed ufw + added `/etc/sudoers.d/claude-ufw` (claude is already de-facto root via tee, so no real privilege change). default-deny-in; allow `lo` + `tailscale0` + `22 from 192.168.10.0/24`. **Dead-man's-switch** (nohup 300s `ufw disable`) armed before enable, cancelled after verifying from a 2nd session. Verified: raw-LAN `:8080` **BLOCKED**, tailnet `:8080` **200**, SSH preserved on LAN+tailnet.
+  - **ssh key-only:** `/etc/ssh/sshd_config.d/00-hardening.conf` PasswordAuthentication no; reloaded; key login OK ×3 on LAN + tailnet, password→`Permission denied (publickey)`.
+- **5.7 PARTIAL — monitoring live, delivery pending (U11):** CCR scheduled-trigger approach **INFEASIBLE** (only env is a cloud one with no path to a NAT'd/tailnet-only device). Pivoted to a monitor on **ubuntu-vm** (34d uptime, tailnet+LAN, holds the key): `~/.local/bin/jetson-watch.sh` via user cron `*/15` pushes `jetson_up/tailnet_up/lan_up/llm_health` to the **existing open-brain pushgateway** → **confirmed in Prometheus** (jetson_up=1). Visibility live in Grafana, zero open-brain config edits. **Remaining:** a Grafana alert rule on `jetson_up==0` + a contact point — no usable channel auto-discovered (Grafana has no contact points; postfix relay has no host-exposed port; homeserver has no python3). Delivery channel = Troy's pick.
+
+**Phase 5 net: 5.1–5.6 COMPLETE + reboot-validated; 5.7 monitoring live, one decision (alert channel) from done. Phase 6 deferred items unchanged.**
 
 ---

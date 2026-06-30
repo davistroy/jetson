@@ -806,7 +806,7 @@ GPU idles at 306/1020 MHz with on-demand DVFS; first-token latency eats a clock 
 
 #### 5.6 — Access control: API auth + firewall + SSH key-only (H6)
 
-**Status: BLOCKED 2026-06-30 — needs decisions** <!-- (1) FIREWALL: ufw NOT installed AND NOT in claude NOPASSWD sudoers — cannot configure autonomously without broadening the sudo grant (a security tradeoff = Troy's call). (2) API-KEY: gated on U9 — enforcing it breaks contact-center-lab's next run unless the consumer is updated where it actually runs (localhost in config = unclear). (3) SSH key-only: doable but no `sshd -t` validation (sshd not in sudoers) and the plan sequences it after the firewall. -->
+**Status: COMPLETE 2026-06-30** <!-- API-KEY: generated, stored Bitwarden dev/jetson/llm-api-key, --api-key-file in all 5 scripts; unauth->401 (incl. from LAN), auth->200, /health public. FIREWALL: ufw installed + added to sudoers (/etc/sudoers.d/claude-ufw); default-deny-in, allow lo+tailscale0+22-from-192.168.10.0/24; dead-man-switch used; verified raw-LAN :8080 BLOCKED, tailnet :8080 200, SSH preserved. SSH: PasswordAuthentication no (00-hardening.conf), key login OK LAN+tailnet, password refused. CONSUMER: contact-center-lab pipeline/config.yaml localhost backend -> ${JETSON_LLM_API_KEY} (working-tree only — cc-lab has a large pre-existing dirty diff; not committed by me). U9 resolved: cc-lab default_backend is dgx_spark, NOT the Jetson, so enforcement didn't break production. -->
 **Status (orig): PENDING**
 **Model Tier: opus** *(highest blast radius; cross-repo; self-lockout risk)*
 **Requirement Refs:** Entry 034 H6 / P0-2, P0-3, P1-4; **ADR-0001**
@@ -837,7 +837,7 @@ Per ADR-0001, defense-in-depth on the confirmed-open LLM API. Staged, lockout-sa
 
 #### 5.7 — Observability instrumentation (H7)
 
-**Status: BLOCKED 2026-06-30 — needs alert destination (U11)** <!-- Jetson instrumentation is autonomous, but the VALUE (an alert when the node drops) needs (a) a notification destination — Troy's existing Grafana contact point / ntfy / push, or a Claude-Code-Remote scheduled trigger — and (b) editing the existing open-brain Prometheus/Grafana on homeserver (back up config first). Deferred pending the channel choice; also pairs with 5.6's firewall (so any new exporter port isn't LAN-exposed). -->
+**Status: PARTIAL 2026-06-30 — monitoring LIVE; alert delivery pending (U11)** <!-- CCR-trigger approach INFEASIBLE: the only available env is a cloud one that can't reach a NAT'd/tailnet-only device. Pivoted: deployed ~/.local/bin/jetson-watch.sh on ubuntu-vm (34d uptime, on tailnet+LAN, holds the key) via user cron */15min -> pushes jetson_up / jetson_tailnet_up / jetson_lan_up / jetson_llm_health to the existing open-brain pushgateway -> CONFIRMED in Prometheus (jetson_up=1). Visibility live in the existing Grafana with no open-brain config edits. REMAINING: a Grafana alert rule on jetson_up==0 (or jetson_tailnet_up==0) + a contact point — delivery channel is U11, Troy's pick (no usable channel auto-discovered: Grafana has no contact points, postfix relay has no host-exposed port). -->
 **Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 033 (2-day silent outage — the headline lesson), Entry 034 P0-1
