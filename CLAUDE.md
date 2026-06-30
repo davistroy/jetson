@@ -39,11 +39,18 @@ $SSH "echo llm > ~/llm-server/mode.txt && kill \$(pgrep -f llama-server)"
 $SSH "sudo nvidia-smi" && $SSH "free -h"
 $SSH "ls -lhS ~/llm-server/models/"
 
-# Test chat (qwen35 default, port 8080)
-$SSH "curl -s http://localhost:8080/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\":\"qwen3.5-4b\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"max_tokens\":64}'"
+# Test chat (qwen35 default, port 8080) — API KEY REQUIRED since 2026-06-30 (Phase 5.6)
+$SSH "curl -s http://localhost:8080/v1/chat/completions -H 'Content-Type: application/json' -H \"Authorization: Bearer \$(cat ~/llm-server/.apikey)\" -d '{\"model\":\"qwen3.5-4b\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"max_tokens\":64}'"
 # Test embedding (port 8081)
-$SSH "curl -s http://localhost:8081/v1/embeddings -d '{\"input\":\"test\",\"model\":\"qwen3\"}' | head -c 200"
+$SSH "curl -s http://localhost:8081/v1/embeddings -H \"Authorization: Bearer \$(cat ~/llm-server/.apikey)\" -d '{\"input\":\"test\",\"model\":\"qwen3\"}' | head -c 200"
+# (/health stays unauthenticated: $SSH "curl -s http://localhost:8080/health")
 ```
+
+## Security posture (hardened 2026-06-30, Phase 5.6 — see IMPLEMENTATION_PLAN / LAB_NOTEBOOK Entry 034)
+- **LLM API requires an API key.** Key file `~/llm-server/.apikey` (root/claude-owned, 600); source of truth in Bitwarden `dev/jetson/llm-api-key`. All 5 start scripts pass `--api-key-file`. Unauthed → 401; `/health` is public. Consumers send `Authorization: Bearer <key>` (contact-center-lab uses `${JETSON_LLM_API_KEY}`).
+- **Firewall (`ufw`) default-deny inbound.** Allowed: `lo`, `tailscale0` (full), and `22` from `192.168.10.0/24`. So **8080/8081 are reachable only over the tailnet + loopback — NOT the raw LAN.** (`sudo ufw status`; claude has NOPASSWD ufw via `/etc/sudoers.d/claude-ufw`.)
+- **SSH is key-only** (`/etc/ssh/sshd_config.d/00-hardening.conf`: PasswordAuthentication no).
+- **Health monitoring:** `ubuntu-vm` cron (`~/.local/bin/jetson-watch.sh`, `*/15`) pushes `jetson_up`/`tailnet_up`/`lan_up`/`llm_health` to the homeserver open-brain pushgateway → Prometheus/Grafana. (Alert *delivery* not yet wired — needs a Grafana contact point.)
 
 ## Architecture
 - llama.cpp b8987 (rebuilt 2026-04-30 from b8766, +9-12% throughput), CUDA 12.6
