@@ -107,7 +107,7 @@ Build takes ~20-30 minutes on the Jetson (CUDA kernel compilation is slow on ARM
 
 ## Models
 
-All models stored in `/home/claude/llm-server/models/` (~34 GB total):
+All models stored in `/home/claude/llm-server/models/` (~31 GB total):
 
 | Model | File | Size | Quant | Use |
 |-------|------|------|-------|-----|
@@ -118,7 +118,6 @@ All models stored in `/home/claude/llm-server/models/` (~34 GB total):
 | Qwen3-Embedding-4B | `Qwen3-Embedding-4B-Q6_K.gguf` | 3.1 GB | Q6_K | Embeddings (higher quality) |
 | Qwen3-Embedding-0.6B | `Qwen3-Embedding-0.6B-Q8_0.gguf` | 610 MB | Q8_0 | Embeddings (lightweight) |
 | Qwen3-4B | `Qwen_Qwen3-4B-Q5_K_M.gguf` | 2.7 GB | Q5_K_M | Chat |
-| Qwen3.5-4B-Claude-Distilled-v2 | `Qwen3.5-4B-Claude-Distilled-v2-Q4_K_M.gguf` | 2.6 GB | Q4_K_M | ARCHIVED — reasoning loop bug, delete after 2026-05-30 |
 | Qwen2.5-3B-Instruct | `qwen2.5-3b-instruct-q4_k_m.gguf` | 2.0 GB | Q4_K_M | Chat (legacy mode) |
 | Qwen2.5-7B-Instruct | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | 4.4 GB | Q4_K_M | Chat (tight fit for GPU) |
 | Qwen2.5-7B-Instruct | `Qwen2.5-7B-Instruct-Q3_K_S.gguf` | 3.3 GB | Q3_K_S | Chat (smaller 7B quant) |

@@ -2475,3 +2475,402 @@ If `systemd-cgtop myscript.service` ever shows throttling activity, raise Memory
 - Reversal procedure if anything goes sideways: `sudo rm /etc/sysctl.d/99-llm-inference.conf && sudo sysctl --system && sudo rm /etc/systemd/system/myscript.service.d/memory-limits.conf && sudo systemctl daemon-reload && sudo systemctl enable --now nvmemwarning.service`. Backup files in `/tmp/oom-fix-backup/` for cross-reference (note: /tmp clears on reboot — copy them out if you want them long-term).
 
 ---
+
+## Entry 024: Biweekly Recon (2026-05-13)
+**Date:** 2026-05-13 UTC
+**Operator:** Claude Code (jetson-recon skill)
+**Status:** RECON — no changes made
+
+### Check 1 — JetPack / Firmware: MEDIUM — JetPack 7.2 confirmed early June
+JetPack 7.2 now confirmed by NVIDIA staff (kayccc) for **early June 2026** — first JetPack 7.x targeting Orin. Expected: Ubuntu 24.04, kernel 6.8, CUDA 12.8+, TensorRT 10.5+. Full reflash required (no OTA). JetPack 7.0/7.1 were AGX Thor only. Current 6.2.2 remains latest for Orin Nano.
+
+### Check 2 — llama.cpp Releases: LOW — b9133 latest, nothing Jetson-relevant
+5 new releases since last seen b9093 (b9127–b9133, all May 12–13). All target non-Jetson backends: Qualcomm Hexagon DSP, Adreno OpenCL, AMD ZenDNN, server reasoning features, CLI arg renaming. Zero SM87/CUDA/flash-attn/KV changes. **b9131 CLI arg consistency change** is a yellow flag — verify startup script args before any future rebuild. No upgrade warranted.
+
+### Check 3 — Small Model Landscape: INFO — new trial candidates, Gemma 4 still blocked
+- **Phi-4-mini-instruct** (3.8B dense, 2.49 GB Q4_K_M, 128K ctx, MMLU 68.5): Fits experiment slot. Production-ready GGUF. Worth trialing against Qwen3.5-4B.
+- **Gemma 4 E2B**: Still blocked by llama.cpp #22243 (PLE not injected into forward graph). Also #22396 (json-schema crash) and #16370 (GPU offload on SM87). Multiple blockers — wait for upstream.
+- **Jackrong/Qwen3.5-4B-Claude-4.6-Opus-Reasoning-Distilled-v2-GGUF**: Different author/approach from the archived v1 distill. Targets excessive CoT specifically. Zero memory risk. Low-priority smoke test.
+- **EmbeddingGemma-300M** (ggml-org, ~200 MB Q4_K_M, MTEB #8): Not a quality replacement for Qwen3-Embedding-4B (MTEB #3), but interesting if RAM reclaim ever needed.
+- **Qwen3.6 small models**: Confirmed absent. Qwen3.6 line is 27B/35B only. Push expected date to **Q3 2026**.
+- **Qwen4**: No release. Prediction markets say possible before July 2026 but nothing shipped.
+
+### Check 4 — Forum & Community: INFO — setup validated, no new techniques
+- **Build flags FA_ALL_QUANTS + CUDA_F16**: Forum flagged as critical optimizations — ALREADY CONFIRMED in current b8987 build (JETSON_CONFIG.md). No gap.
+- **Symmetric KV for flash attention**: Already using q8_0 for both K and V. Fused FA path should be active.
+- **Community tok/s reference**: Orin Nano getting 11–14 tok/s on comparable models with stock setups. Current 15.3 tok/s is **above community average** — confirms tuning is effective.
+- **MoE hang on SM87** (#19219): Still unresolved but only affects MoE architectures. Dense Qwen3.5-4B is safe.
+- **NVIDIA blog** on OS memory reclaim: 865 MB recoverable by disabling desktop. Already running headless.
+- **16 GB file-backed swap**: Becoming community standard. Already configured (though zram also active).
+
+### Check 5 — Live Health: HEALTHY
+- **Service**: UP, active since 2026-05-09 01:04:34 (4 days post-OOM fix)
+- **System uptime**: 28 days, load 0.00
+- **RAM**: 6.2/7.4 GiB used, 387 MiB available (below 500 MB threshold, but expected steady-state with cgroup limits active)
+- **MemoryCurrent**: 5.21 GiB vs MemoryHigh 5.3 GiB (165 MiB soft headroom) — cgroup throttle engaged as designed
+- **Thermals**: 46.6–48.6°C across all zones — well under 75°C idle threshold
+- **Inference**: 14.26 tok/s gen (6.8% below 15.3 baseline, within 15% threshold; small 6-token sample)
+- **Disk**: 17% used (134G/824G)
+- **Swap**: 819 MiB zram used, 16 GB SSD swap idle — healthy distribution
+- **OOM verification (4/7 days)**: Zero OOM events since May 9 fix. Only log entries are the pre-fix crash at 01:04:27. **Fix holding.**
+- **3-layer fix intact**: sysctl conf present, cgroup limits enforced, nvmemwarning disabled
+
+### Cross-Correlated Findings
+1. **Forum build flags (Check 4) vs config (baseline)**: Forum agent flagged FA_ALL_QUANTS + CUDA_F16 as unconfirmed — resolved as FALSE FLAG. Both confirmed in JETSON_CONFIG.md build commands. No gap.
+2. **JetPack 7.2 (Check 1) + TensorRT-Edge-LLM (Check 4)**: Correlated. JP 7.2 with CUDA 12.8+ will unblock the previously deferred TensorRT-Edge-LLM evaluation. Timeline: early June.
+3. **Gemma 4 E2B (Check 3) + SM87 GPU issues (Check 4)**: Multiple open llama.cpp issues for Gemma on Jetson SM87. Not usable until upstream fixes land.
+4. **OOM fix verification (Check 5)**: 4 of 7 target days complete. Zero events. On track for full verification by 2026-05-16.
+
+### Triggered Alerts
+| Trigger | Match | Status |
+|---------|-------|--------|
+| JetPack 7.2 AND Orin | YES | MEDIUM — confirmed early June, not yet released |
+| llama.cpp SM87/Jetson | NO | No relevant changes in b9094–b9133 |
+| Qwen4 / Qwen3.5 successor | NO | Neither released |
+| Forum optimization techniques | PARTIAL | Build flags already applied; no new techniques |
+
+### Overall: WORTH WATCHING
+
+### Recommendations
+1. **No immediate action needed** — current config remains optimal for the hardware
+2. **Optional trial**: Download Phi-4-mini-instruct Q4_K_M (2.49 GB) for experiment slot — first real alternative to Qwen3.5-4B worth benchmarking
+3. **2026-05-16**: Complete OOM fix verification (7-day mark) — run `journalctl` check, log as Entry 025
+4. **2026-05-14 (tomorrow)**: Safe to delete `~/llm-server/backup-b8766/` — 2 weeks of stable b8987 reached
+5. **Early June**: Watch for JetPack 7.2 release — re-run recon immediately if it drops
+6. **Ongoing**: Monitor llama.cpp #22243 (Gemma 4 PLE) — when fixed, Gemma 4 E2B becomes top trial priority
+7. **Update watch items**: Push Qwen3.6 small model expectation from "late May" to Q3 2026
+
+---
+
+## Entry 025: Biweekly Recon + OOM Recurrence Root-Cause (2026-05-27)
+**Date:** 2026-05-27 16:40 UTC
+**Operator:** Claude Code (jetson-recon skill)
+**Status:** RECON — no changes made
+
+#### Check 1 — JetPack / Firmware: JetPack 7.2 still **NOT released** as of 2026-05-27 (Q2 window closes June 30). Orin Nano support remains *planned, not shipped*. When it lands: CUDA 12.6→13.0, kernel 5.15→6.8, Ubuntu 22.04→24.04, full reflash. **MEDIUM (announced, imminent).** Trigger `JetPack 7.2 AND Orin` NOT matched (not released — only announced).
+#### Check 2 — llama.cpp Releases: Latest **b9360** (2026-05-27). **373 builds since running b8987; 227 since last-seen b9133. Zero SM87/Jetson/Tegra/unified-memory changes.** CLI-arg standardization continues (b9360: env vars all moved to `LLAMA_ARG_*` prefix) — breaking-change risk compounds the b9131 arg renames. **LOW.** Trigger NOT matched. Hold at b8987.
+#### Check 3 — Small Model Landscape: No new 4B-class dense model since 2026-05-13. Qwen3.6 still ships only 27B/35B-A3B (no 4B tier; expected Q3 2026). Gemma 4 E2B/E4B still blocked by llama.cpp **#22243 (PLE unimplemented), unfixed**. Phi-4-mini already on watch list. Embedding: Jina Embeddings v4 (~3B) worth a GGUF check vs Qwen3-Embedding-4B. **Zero-risk lever:** Qwen3.5-4B LoRA fine-tunes (coding/text-to-SQL) drop in at ~50 MB. **NO ACTION.** Trigger `Qwen4 OR Qwen3.5 successor` NOT matched.
+#### Check 4 — Jetson Forum / Community: No technique beats our 15.3 tok/s on Orin Nano 8GB for a 4B/7B Q4_K_M model — community consensus is memory-bandwidth-bound single-stream. flouisdev auto-config post (2026-04-13) already on watch list. TensorRT-LLM still AGX-Orin-only / experimental on Nano (~20 tok/s, slower than llama.cpp single-stream). **INFO only / NO ACTION.**
+#### Check 5 — Live Health: Server **UP** (qwen35, b8987, port 8080). Gen **15.05 tok/s** (vs 15.3 baseline, −1.6%, healthy). Thermals ~47–49°C (healthy). Disk 17%. Swap: 325 MB on zram only, 16 GB file swap untouched. **BUT: recurring OOM kills — service restarted 2026-05-26 01:07 after its 3rd OOM kill. DEGRADED.**
+
+#### 🔴 KEY FINDING — Entry 023 OOM Fix DID NOT WORK (root cause was misdiagnosed)
+Three OOM kills now on record, **all global, all ~01:00, llama-server always the victim:**
+
+| Date | Time | Constraint | Victim oom_score_adj | llama anon-rss | Precipitant in window |
+|------|------|-----------|---------------------|----------------|----------------------|
+| May 09 | 01:04:27 | CONSTRAINT_NONE (global) | 0 | 3932 MB | (pre-fix baseline) |
+| May 17 | 01:01:06 | CONSTRAINT_NONE (global) | 0 | 3932 MB | early-AM maintenance |
+| May 26 | 01:06:52 | CONSTRAINT_NONE (global) | 0 | 3934 MB | **snapd watchdog SIGABRT + Go crash-dump** |
+
+**Confirmed mechanism (no longer hypothesis):**
+1. OOM is **global (system-wide RAM exhaustion), NOT the cgroup MemoryMax** — so the Entry 023 cgroup limits (`MemoryHigh=5500M`/`MemoryMax=6000M`) cannot prevent it; the spiker is *external* to the llama-server cgroup.
+2. **snapd is OOM-protected at `oom_score_adj=-900`** (2.1 GB virtual; runs headless-useless desktop snaps: chromium, gnome-46, mesa-2404, gtk-common-themes, cups). The kernel literally cannot pick it.
+3. **llama-server sits at `oom_score_adj=0` with the largest anon-rss (~3.93 GB)** → it is *always* the selected victim.
+4. On 8 GB unified RAM the live headroom is razor-thin (free 590 MB, cgroup `available: 139 MB`). Any early-AM maintenance burst (man-db index rebuild fires in the 00:40–01:00 window; anacron cron.daily; occasionally a snapd watchdog crash-dump as on May 26) tips total memory over the edge.
+5. **Entry 023 concluded "NOT cron-triggered; structural swappiness" and applied `vm.swappiness=1` + cgroup limits.** That reduced swap thrashing but never touched the two real levers — *headroom* and *OOM victim selection*. Result: kills recurred on May 17 (8 days later) and May 26 (9 days later). This is the whack-a-mole pattern the systematic-debugging rule warns against.
+
+#### Cross-Correlated Findings: Check 5 OOM recurrence ⨯ Entry 023 fix ineffectiveness ⨯ live 139 MB cgroup headroom → all point to one structural conclusion: **on this 8 GB box, llama-server must be made the OOM survivor, not the sacrifice, and the early-AM memory pressure must be cut.** Single root cause, multi-date corroboration → HIGH confidence.
+#### Triggered Alerts: No web-source trigger matches (jetpack/llamacpp/huggingface/forum all NOT matched). The ACTION classification is driven entirely by Check 5 health DEGRADED.
+#### Overall: **ACTION NEEDED** — recurring inference-server OOM kills; prior fix ineffective.
+
+#### Recommendations (RECON = report only; NOT applied — awaiting approval)
+1. **Protect the inference server from OOM victim selection (primary, lowest-risk, trigger-agnostic):** add `OOMScoreAdjust=-900` to `myscript.service`. Then global OOM will evict snapd / a maintenance job instead of llama-server. This stops the symptom regardless of which job spikes on a given night.
+2. **Cut the early-AM memory pressure (addresses the trigger):**
+   - `systemctl disable --now man-db.timer` — man-db index rebuild is useless on a headless server and is the recurring 00:40–01:00 burst.
+   - Remove headless-useless desktop snaps (chromium, gnome-46-2404, mesa-2404, gtk-common-themes, cups) and/or mask snapd refresh — snapd's watchdog crash was the May 26 precipitant; it serves nothing here (Docker is the container runtime, no snaps in use for inference).
+3. **Re-evaluate the Entry 023 cgroup limits:** `MemoryMax=6000M` does not prevent global OOM and the live `available: 139 MB` shows llama-server is being actively reclaim-throttled at MemoryHigh — possible marginal latency cost for zero OOM benefit. Consider relaxing/removing once (1)+(2) are in place.
+4. **Verify:** after applying, watch the next 00:40–01:10 windows for ~2 weeks; `journalctl -u myscript --since … | grep -i oom` should stay empty. Re-confirm root cause is fully addressed rather than assuming.
+5. **No action on Checks 1–4:** config remains optimal. Re-run recon immediately if JetPack 7.2 drops (imminent, by June 30).
+
+#### ✅ Fix Applied (2026-05-27, post-approval — supersedes "NOT applied" note above)
+All three layers implemented and verified the same day:
+1. **`OOMScoreAdjust=-900`** drop-in at `/etc/systemd/system/myscript.service.d/oom-protect.conf` → `daemon-reload` + `systemctl restart myscript`. **Verified:** `systemctl show myscript -p OOMScoreAdjust` = -900; live MainPID 163089 `/proc/.../oom_score_adj` = -900. llama-server is now OOM-protected (tied with snapd); a maintenance job will be the global-OOM victim instead.
+2. **`man-db.timer` disabled** (`systemctl disable --now`) → `disabled / inactive`. Removes the recurring 00:40–01:00 index-rebuild burst.
+3. **Desktop snaps removed** by user interactively (`snap` not in claude NOPASSWD): chromium, cups, gnome-46-2404, gtk-common-themes, mesa-2404. Only `bare`/`core22`/`core24`/`snapd` remain. Cuts snapd memory + watchdog-crash risk (the May 26 precipitant).
+- **Memory headroom:** available RAM 1.4 Gi (recon start) → 1.9 Gi (after layers 1–2) → **2.0 Gi** (after snap removal). Inference unaffected (~15 tok/s).
+- **Original unit backed up:** `~/llm-server/backups/oom-fix-2026-05-27/`.
+- **Verification due ~2026-06-10:** `journalctl -u myscript --since '2026-05-27' | grep -i oom` should be empty. Folded into next biweekly recon (Check 5 already scans for OOM).
+
+---
+
+## Entry 026: Biweekly Recon — JetPack 7.2 Shipped, OOM-Fix Verification FAILED (2026-06-11)
+**Date:** 2026-06-11 15:56 UTC
+**Operator:** Claude Code (jetson-recon skill)
+**Status:** RECON — no changes made
+
+#### Check 1 — JetPack/Firmware: HIGH — JetPack 7.2 SHIPPED for Orin Nano
+- **JetPack 7.2 released:** announced 2026-06-01 (GTC Taipei), downloads live 2026-06-02, Orin Nano DevKit feedback thread opened 2026-06-03. **L4T r39.2** (38.x was Thor-only), Ubuntu 24.04, kernel 6.8, **CUDA 13.2.1**, cuDNN 9.20.0, TensorRT 10.16.2. Orin Nano (Super) 8GB explicitly supported.
+- **Upgrade type: FULL REFLASH** — new unified USB ISO installer (SD-card images discontinued); SDK Manager also works. No apt/OTA path from 6.x. Requires UEFI ≥ 36.x; 36.4.3 users hit capsule-update timeouts (workaround: manual USB boot selection).
+- **Early field reports (~10 days post-release):** no core regressions in JP7.2 itself, but (a) **power-mode bug** — ISO installs non-super TNSPEC; only 7W/15W visible, 25W/MAXN SUPER missing (workaround `sudo nvpmodel -m 2` + systemd persistence, not yet fixed at source); (b) **ecosystem lag** — dustynv jetson-containers, prebuilt Ollama, PyTorch SBSA cu126 wheels all CUDA-12.6-bound and break (Error 801 / CPU fallback / silent NaN on sm_87); (c) llama.cpp must be **rebuilt from source** vs CUDA 13.2 (`-DCMAKE_CUDA_ARCHITECTURES=87`) — community reports ~10–23 tok/s, consistent with no regression.
+- New capability: arm64-SBSA container support — upstream arm64 containers (e.g. official vLLM) now run without Jetson-specific rebuilds.
+- 6.x line: 6.2.2 remains the final/latest 6.x; known open CVE in nvidia-container-toolkit 1.16.2 only fixed in 7.x (≥1.18.0).
+- Sources: forums.developer.nvidia.com/t/372151 (getting-started thread), /t/372490 (practical guide), /t/372283 + /t/372627 (power-mode bug), jetsonhacks.com/2026/05/31/gtc-2026-taipei/, developer.nvidia.com/embedded/jetpack/downloads
+
+#### Check 2 — llama.cpp Releases: HIGH — NvMap VMM patch closed unmerged; latest b9596
+- Latest tag **b9596** (2026-06-11) — 236 builds past last-seen b9360, ~609 past running b8987.
+- **NvMap workaround rejected upstream:** PRs #23732/#23747 — CUDA VMM-backed weight allocator (`GGML_CUDA_VMM_BUFFERS=1`) routing weights through `cuMemCreate` instead of `cudaMalloc` to bypass NvMap pressure tracking; author demoed on an **Orin Nano Super 8GB**. Both **closed unmerged** (May 26/27; flagged as AI-generated). No upstream fix for the NvMap allocation-cap bug; the ~105-line `ggml-cuda.cu` patch is a local-application candidate. **Watch for resubmission.**
+- Issue #19219 (MoE decode hang on SM87 since b7309, `ggml_fill(-INFINITY)`) closed "not planned" — blocks future small-MoE experiments on this device; dense Qwen3.5-4B unaffected.
+- MEDIUM: #23907 (merged 2026-06-03) pre-allocates quantized-KV buffers at startup → deterministic fail-at-startup instead of mid-run OOM with q8_0 KV — directly complements the OOM work. #24360 (merged 2026-06-10) CUDA ssm_scan data-race fix (relevance to Qwen3.5-4B unverified).
+- **No new breaking changes** beyond the two logged (b9131 CLI renames, b9360 `LLAMA_ARG_*` env prefix).
+- Upgrade verdict: rebuild from b8987 optional, not urgent — no clear throughput win for dense Qwen3.5-4B single-slot. (But see Check 3: MTP support changes this calculus.)
+
+#### Check 3 — Small Models: HIGH (runtime, not models) — MTP path on the incumbent model
+- **MTP speculative decoding merged into mainline llama.cpp 2026-05-16 (PR #22673, `--spec-type draft-mtp`)** — AFTER our b8987 build. **unsloth/Qwen3.5-4B-MTP-GGUF** (Q4_K_M = 2.83 GB, same weights + native MTP head, ~10% KV overhead) claims **1.5–2× decode throughput** on the exact model already running. Caveats: reported memory leak in the MTP merge (workaround flag exists) — serious on 8 GB, test in experiment slot with OOM guard; issue #23322 reports low draft acceptance on SWA/hybrid models — verify acceptance rate on Qwen3.5-4B before committing.
+- **Gemma 4 PLE blocker RESOLVED:** llama.cpp#22243 closed completed 2026-04-23 — PLE was already implemented (`src/models/gemma4-iswa.cpp`); issue premise was wrong. E2B now viable-ish: 5.1B total, Q4_K_M = 3.11 GB (borderline over 3 GB ceiling, reduced ctx only); E4B still OOM territory.
+- Zero-memory-cost fine-tune candidates: **Jackrong/Qwen3.5-4B-Claude-4.6-Opus-Reasoning-Distilled-GGUF** (2.71 GB; GPQA-D 33.8→38.9, ARC-C 64.6→66.4 vs base) and **Jackrong/Qwen3.5-4B-Neo-GGUF** (concise-reasoning focus — fewer tokens per answer matters at 15 tok/s).
+- Embeddings: nothing beats Qwen3-Embedding-4B at ≤3 GB. **jina-embeddings-v5-text** (small 677M, distilled FROM Qwen3-Embedding-4B, MMTEB 67.0 vs ~69.5, Q4_K_M ~0.4–0.5 GB) supersedes the tracked Jina v4 — clear upgrade over the Qwen3-Embedding-0.6B lightweight slot, frees ~2 GB if co-residency ever needed.
+- Qwen3.6 4B-class: still NOT shipped, no firmer date (Q3 2026 expectation stands). Rejected: LFM2.5-8B-A1B (MoE trap, 8.3B total ≈ 4.7 GB Q4_K_M), Gemma 4 26B-A4B, Qwen3.5-9B.
+- INFO trigger (Qwen4/Qwen3.5-successor): NOT matched.
+
+#### Check 4 — Jetson Forum: ACTION — MTP fork, JP7.2 field guide, TensorRT-Edge-LLM v0.8.0
+- **cortexist/llama.cpp fork (2026-06-06):** TurboQuant + MTP speculative decoding, 30–40% tok/s lift on Orin NX (Gemma E4B ~13→18 tok/s). Needs MTP-enabled GGUFs; untested on Orin Nano Super 8GB; slight regression on RTX A5000. Corroborates the mainline-MTP lead from Check 3. (forums.developer.nvidia.com/t/372493)
+- **TensorRT-Edge-LLM v0.8.0 (2026-06-03):** NVIDIA's official successor for Jetson LLM inference (HF→ONNX, quantization, EAGLE speculative decoding); TensorRT-LLM Jetson branch confirmed unmaintained. Orin Nano 8GB + Qwen-4B support unverified — re-check compatibility matrix (was DEFERRED 2026-04-30 over CUDA 12.6 mismatch; JP7.2's CUDA 13.2 may unblock it).
+- **Power-mode benchmark (smolhub, 2026-05-29, this exact device):** 25W (`nvpmodel -m 1`) is the throughput/efficiency sweet spot; MAXN_SUPER adds ~17% power for −3% to +8% throughput. Worth checking which mode we run.
+- **CMA fragmentation thread (exact platform, JP6.2.2, open):** llama.cpp + PyTorch concurrent → NVML assert; root cause 512 MB CMA pool fragmentation (largest free block collapses to 4 MB). NVIDIA confirms r36.5 NvMap fixes do NOT address it. Workaround: `sync` + `drop_caches` + `compact_memory` before model load. (forums.developer.nvidia.com/t/370049)
+- INFO trigger (llama.cpp + performance/optimization + jetson): MATCHED.
+
+#### Check 5 — Live Health: DEGRADED — OOM-fix verification FAILED (1 kill since 2026-05-27)
+- **OOM VERIFICATION FAILED:** llama-server OOM-killed **2026-06-07 01:15 EDT** (11 days post-fix). `myscript.service: Failed with result 'oom-kill'`; systemd restarted it at 01:15:29; clean for 4d 10h since.
+- **BUT the Entry 025 layers worked as configured:** global OOM storm ran 01:00:29–01:15:22 (`global_oom, constraint=CONSTRAINT_NONE`); llama-server at adj −900 survived ~15 minutes while the kernel killed nearly everything else (tailscaled, jtop, NetworkManager, resolved, rsyslogd, udevd, then journald/logind/cron/getty in a mass wave) before finally taking llama-server.
+- **Forensics reframe the root cause:** first kernel OOM dump shows `active_anon:0`, `Mlocked:0kB`, pagecache ~36 MB, slab ~180 MB, every process rss=0 (fully swapped), `all_unreclaimable? yes` — **~7+ GB of 7.6 GB managed RAM held by memory invisible to OOM accounting = NvMap/GPU allocations** (known JetPack NvMap accounting bug). Killing userspace freed nothing — hence the 15-minute storm. NOT a cgroup kill, NOT man-db (timer confirmed dead since 05-27), no cron/timer matches Sunday 01:00; journal gap hides the immediate trigger.
+- Entry 025/023 config all still live: unit + MainPID `oom_score_adj=-900`; man-db.timer disabled/inactive; MemoryHigh 5.37 GiB / MemoryMax 5.86 GiB.
+- Standard health: service active 4d 10h (2 start lines since 05-27 = the one OOM restart); boot 2026-04-14 (57 days up); mode qwen35, full offload; llama.cpp b8987 (`5f0ab726f`). RAM 5.5 Gi used / **1.1 Gi available**; RSS 5228 MB (+5.2% vs 4969 baseline, within threshold); NvMap iovmm shows llama-server holding 3.96 GB GPU. Swap 212 Mi of 19 Gi (zram only). Disk 17%. Inference PASS: 0.874 s roundtrip, pp 77.6 tok/s, **gen 14.17 tok/s** (6-token sample; −7.4% vs 15.3 baseline, within 15% threshold). Thermals 46–48 °C. Slots: 1.
+- **Advisory:** unit memory 5.1 G with only **~216 MB headroom to MemoryHigh** (5.37 G) and ~250 MB RSS growth in 4 days — reclaim-throttle risk within days if growth continues.
+
+#### Cross-Correlated Findings
+1. **NvMap-unaccounted GPU memory is the true OOM root cause** (3-source, highest confidence): Check 5 forensics (7+ GB invisible to the kernel OOM accounting) + Check 2 (VMM allocator PRs targeting exactly this, demoed on this exact board, rejected upstream) + Check 4 (CMA-fragmentation thread on this exact platform; NVIDIA confirms r36.5 doesn't fix it). The Entry 025 fix addressed victim selection and one trigger — it cannot address a consumer the kernel can't see.
+2. **MTP speculative decoding** (2-source): mainline merge PR #22673 + unsloth Qwen3.5-4B-MTP GGUF (Check 3) corroborated by the cortexist fork's 30–40% Orin NX numbers (Check 4). Strongest available throughput lead (~15.3 → potentially 22–30 tok/s decode). Requires rebuild past b9360 (both logged breaking changes apply).
+3. **JetPack 7.2** (2-source): Check 1 release detail + Check 4 field guide agree — works on Orin Nano, full reflash, CUDA-12.6 ecosystem breaks, llama.cpp source rebuild required. Kernel 6.8 may change the NvMap/CMA behavior behind finding 1 — upgrade evaluation and OOM root cause are now coupled.
+
+#### Triggered Alerts
+- **ACTION — jetpack:** "JetPack 7.2 AND Orin Nano" MATCHED (Check 1: shipped 2026-06-01/02 with Orin Nano support).
+- **ACTION — llamacpp_release:** "SM87 OR Jetson OR Tegra OR unified memory" MATCHED (Check 2: NvMap VMM PRs #23732/#23747, SM87 MoE hang #19219).
+- **INFO — forum:** "llama.cpp AND (performance OR optimization) AND jetson" MATCHED (Check 4: cortexist MTP fork, JP7.2 practical guide).
+- huggingface trigger ("Qwen4 OR Qwen3.5 successor"): no match.
+
+#### Overall: ACTION NEEDED
+
+#### Recommendations (RECON = report only; NOT applied — awaiting approval)
+1. **Reframe the OOM problem (Entry 025 verification verdict): fix FAILED to prevent, but worked as designed.** The open root cause is now **NvMap/GPU memory invisible to kernel OOM accounting**. Near-term mitigation candidates, in order: (a) lightweight watchdog that monitors `MemAvailable` (and/or NvMap iovmm) and proactively restarts `myscript` before global exhaustion — kernel OOM can't defend against a consumer it can't see, so userspace must; (b) watch for resubmission of the VMM allocator patch (#23747) and consider local application (~105 lines, `GGML_CUDA_VMM_BUFFERS=1`); (c) try the CMA workaround from the forum thread (`sync` + `drop_caches` + `compact_memory`) in the start script before model load.
+2. **Relax/remove Entry 023 cgroup limits now** — June 7 proved they don't prevent global OOM, and the unit is within ~216 MB of the MemoryHigh reclaim throttle. They cost latency risk and buy nothing against the real failure mode.
+3. **JetPack 7.2: plan the upgrade, don't execute yet.** Wait 2–4 weeks (power-mode TNSPEC bug unfixed; CUDA 12.6 ecosystem still catching up), per the trigger's own guidance. Evaluate as a possible structural OOM fix (kernel 6.8 NvMap behavior). Full reflash via USB ISO; budget a llama.cpp rebuild vs CUDA 13.2 and `start-*.sh` updates for the b9131/b9360 breaking changes in the same window.
+4. **Trial MTP in the experiment slot** (after a rebuild to ≥ current): unsloth/Qwen3.5-4B-MTP-GGUF (2.83 GB), `--spec-type draft-mtp`. Validate the reported MTP memory leak under the OOM guard and measure draft acceptance (#23322) before promoting. Potential 1.5–2× decode on the incumbent model.
+5. **Check power mode** (`nvpmodel -q`): community benchmark says 25W is the sweet spot on this device; confirm we're not leaving free throughput (or wasting 17% power) on the table.
+6. Minor / zero-risk: try Jackrong Qwen3.5-4B reasoning fine-tunes in experiment slot; re-check TensorRT-Edge-LLM v0.8.0 compatibility matrix (CUDA 13.2 under JP7.2 may unblock the 2026-04-30 deferral); jina-embeddings-v5-small as lightweight embedding upgrade; Gemma 4 E2B unblocked but borderline at 3.11 GB.
+
+---
+
+## Entry 027: Ultra-Plan — Implementation Design for Entry 026 Items 1–5 (2026-06-11)
+**Date:** 2026-06-11 UTC
+**Operator:** Claude Code (ultra-plan skill)
+**Status:** PLANNING — analysis only, no changes made; awaiting approval
+
+#### Investigation surprises (verified live, read-only SSH)
+1. **MemoryCurrent 5.21 GiB — only 170 MB below MemoryHigh (5.37 GiB).** Reclaim throttling imminent/active; plausible cause of the 14.17 vs 15.3 tok/s dip (`--mlock` concentrates reclaim pressure on the unlocked remainder). Cgroup limits exist in TWO layers: `/etc/systemd/system/myscript.service.d/memory-limits.conf` AND runtime duplicates at `/run/systemd/system.control/myscript.service.d/50-{MemoryHigh,MemoryMax}.conf` (set-property artifacts, same values). NEVER `systemctl revert` (would delete oom-protect.conf too) — surgical `rm` + daemon-reload.
+2. **Power mode is MAXN_SUPER (mode 2)** but `/etc/nvpmodel.conf` default is 1 (25W). Modes: 0=15W, 1=25W, 2=MAXN_SUPER. `nvpmodel` IS in NOPASSWD sudoers (so are tee/cat/ls/jetson_clocks — broader than documented; no Troy-interactive steps needed anywhere in this plan).
+3. **`start-experiment.sh` is BROKEN** — points at Qwen3.5-4B-Claude-Distilled-v2-Q4_K_M.gguf, deleted 2026-05-13. Selecting experiment mode today = 5s crash loop, each iteration running the 5 GiB page-cache evictor.
+4. **Startup evictor vs watchdog interaction:** every start script allocates a 5 GiB bytearray to evict page cache — MemAvailable crashes to ~0 on every service start. A naive MemAvailable watchdog would restart-loop. Guards required: 2-consecutive-poll breach + myscript active >180s + 15-min cooldown + MAINTENANCE flag bypass.
+5. **No script uses `LLAMA_*` env vars** → b9360 `LLAMA_ARG_*` breaking change is moot. Only b9131 CLI renames matter (13 distinct flags across 5 start scripts).
+6. CMA on this box: 256 MB total / 67 MB free (forum thread's box had 512 MB). MemAvailable 1.05 GiB at rest.
+
+#### Change sets (approved design pending)
+- **CS-A Platform envelope (one evening):** (A1) replace memory-limits.conf with `MemoryMax=6400M` ONLY — no MemoryHigh; rm runtime 50-* drop-ins; rationale: MemoryHigh throttles without protecting, but a raised MemoryMax stays as the one llama-server-scoped backstop (an MTP-leaking llama-server at adj −900 would otherwise recreate June 7 as the villain). Re-bench immediately (tests throttle-dip hypothesis). (A2) root `memory-watchdog.service`: 30s poll; WARN <700 MB → snapshot; CRITICAL <350 MB ×2 polls + guards → snapshot + restart myscript; hourly heartbeat CSV (MemAvailable, MemoryCurrent, NvMap iovmm, RSS) — replaces the forensics June 7's journal gap denied; OOMScoreAdjust=-1000, MemoryMax=64M; induced-fire test in attended window. Plus `cma-compact.conf` drop-in: `ExecStartPre=+` sync/drop_caches/compact_memory. (A3) power mode by measurement: bench.sh under MAXN_SUPER vs 25W (check jetson_clocks --show first); tie → 25W; winner becomes new baseline.
+- **CS-B Rebuild (maintenance window, 45–90 min downtime):** backup build/bin → backup-b8987-bin; MAINTENANCE flag; stop; checkout latest (≥b9596); identical CMake flags (verified in CMakeCache: Release/ARCH=87/F16/FA_ALL_QUANTS/CUDA_GRAPHS); -j6 (fallback -j4); **flag-migration gate**: --help diff vs all 5 scripts before first start; bench gate: gen ≥ baseline −5% else rollback. Bonus: 6 weeks of CVE fixes (server is LAN-exposed, --host 0.0.0.0).
+- **CS-C MTP trial (setup + 48 h soak):** rewrite stale start-experiment.sh (fixes broken mode) → unsloth/Qwen3.5-4B-MTP-GGUF Q4_K_M (2.83 GB) + `--spec-type draft-mtp`; hour-1 gates (acceptance rate, tok/s); soak with watchdog heartbeat as RSS-slope instrument; promote gate: ≥+25–30% gen AND flat RSS → update start-qwen35-server.sh. Lossless w.r.t. output quality (speculative decode verifies tokens).
+- **CS-D Fine-tune trials (optional, time-boxed):** Jackrong Claude-4.6-Opus-distill + Neo, sequential in experiment slot, ~10-prompt quality probe gate (v2-distill reasoning-loop = cautionary precedent). Default = don't promote.
+
+#### Sequence & dependencies
+CS-A → (1–2 days heartbeat settle) → CS-B → CS-C → CS-D. Power mode finalized BEFORE CS-B benchmarks; watchdog live BEFORE CS-C soak; CS-C/CS-D serialize on the single experiment slot.
+
+#### Unknowns register
+U1 b9131 rename specifics (resolve: --help diff, CS-B step 4) · U2 MTP leak-workaround flag (GitHub search pre-CS-C) · **U3 MTP draft acceptance on Qwen3.5-4B — HIGH, decides CS-C value (hour-1 abort gate)** · U4 throttle-dip hypothesis (answered by post-A1 re-bench) · U5 does cgroup MemoryCurrent see NvMap allocations (compare vs RSS/iovmm during A2 verify) · U6 jetson_clocks state (pre-A3 check).
+
+#### Out of scope
+JetPack 7.2 upgrade (separate decision ~2026-06-25+; inherits CS-B's migrated scripts), VMM local patch (baseline trigger watches), TensorRT-Edge-LLM (post-JP7.2), embedding changes, Gemma 4 E2B.
+
+---
+
+## Entry 028: Phase 1 Execution — Item 1.1 Done; Item 1.2 Surfaced mlock + Threshold Root-Cause (2026-06-15)
+**Date:** 2026-06-15 UTC
+**Operator:** Claude Code (implement-plan, gated live execution on branch feature/jetson-phase1-platform-envelope)
+**Status:** EXECUTION — 1.1 applied + verified; 1.2 PAUSED pending redesign + decision
+
+#### Item 1.1 — Cgroup rework: COMPLETE & VERIFIED (2026-06-12)
+- Backed up all 4 drop-ins → `~/llm-server/backups/envelope-2026-06-11/`.
+- Replaced `memory-limits.conf` with `MemoryMax=6400M` only (MemoryHigh removed); `rm` the two `/run/systemd/system.control` set-property drop-ins; daemon-reload + restart.
+- Verified live: `MemoryHigh=infinity`, `MemoryMax=6710886400`, `OOMScoreAdjust=-900` preserved; only the 2 `/etc` drop-ins remain; full GPU offload (999 layers, 6202 MB free post-evictor); oom_score_adj −900 live on MainPID.
+- **`bench.sh dethrottled`: gen 15.2–15.3 tok/s (medium+long), pp 153–170 tok/s, tight variance** — at historical baseline. **U4 verdict:** the recon's 14.17 tok/s was a 6-token cold sample and did NOT reproduce; de-throttled config shows zero throughput penalty + reclaim headroom gained. RSS 5062 MB at bench time.
+
+#### Item 1.2 — Watchdog deployed + validated, but ARMING PAUSED — two findings
+**Watchdog mechanics VALIDATED** (script `~/llm-server/memory-watchdog.sh`, unit `/etc/systemd/system/memory-watchdog.service`, daemon-reloaded, inactive): MemAvailable reader correct; snapshot writes; 4 guards work; cooldown suppresses repeat fires; running as non-root `claude` cannot restart (interactive-auth denied) = safe. Unit hardened OOMScoreAdjust=−1000, MemoryMax=128M (raised from planned 64M so the watchdog can't be OOM-killed inside its own cgroup while forking ps/dmesg during a storm).
+
+**FINDING 1 — `--mlock` has NEVER worked (root-cause class, ties to Entry 026).** Live `/proc/<llama>/status`: `VmLck: 0 kB`, `VmSwap: 3047672 kB` (3.05 GB swapped), `VmRSS: 3955692 kB`. The start scripts pass `--mlock` but `myscript.service` sets no `LimitMEMLOCK`, so the systemd default (8 MB) silently caps it — the 2.6 GB model is never pinned and is swap-eligible. **Consistent with the June 7 OOM dump line `Mlocked:0kB`** — the model has always been unpinned, contributing to the swap thrash under pressure. cgroup: memory.current 3.94 GB, memory.swap.current 3.12 GB.
+
+**FINDING 2 — box steady state ≈ 0 MB MemAvailable; the planned thresholds are miscalibrated.** Live: `MemAvailable: 0–11 MB`, MemFree 348 MB, all 6 zram devices ~85% full (~3.1 GB), 16 GB file swap (PRIO −2) at 0 B (untouched backstop). The Qwen3.5-4B + 32K q8_0 KV + full-offload workload needs ~7 GB against 7.4 GB total → permanent reliance on zram. So MemAvailable normally sits at/near 0 — **arming the watchdog at crit=350/warn=700 MB would restart-loop the server.** The real danger signal is swap exhaustion (zram saturated AND file swap filling fast), not MemAvailable.
+
+**Implications for the plan:**
+- Item 1.2 watchdog trigger must be REDESIGNED around swap-exhaustion (e.g., file-swap-used > floor AND total-swap-free < floor AND MemAvailable ~0 sustained), not MemAvailable thresholds. Heartbeat already captures the right fields; thresholds need real-data calibration.
+- NEW candidate work item (root-cause): fix `LimitMEMLOCK` so `--mlock` works — BUT footprint analysis first: pinning the 2.6 GB model doesn't reduce total ~7 GB demand, it changes WHAT swaps; may need a paired `--ctx-size` reduction (is 32K needed?) to create real headroom. This connects directly to the OOM history and may be higher-leverage than the watchdog alone.
+- No immediate OOM risk: 16 GB file swap is an untouched backstop; box stable 3 days. Safe to pause and decide.
+
+**State (superseded — see 1.2 RESOLUTION below):** 1.1 live; watchdog INACTIVE pending decision.
+
+#### Item 1.2 RESOLUTION — Redesigned around file-swap + ARMED & VERIFIED (2026-06-15)
+Decision (user): "Both, in sequence" — redesign+arm now, mlock/footprint investigation next.
+- **Trigger redesigned (Entry 028 Finding 2):** CRITICAL = file-swap-used > 1024 MB **AND** MemAvailable < 150 MB, sustained 3 polls (90 s). The `AND MemAvailable` guard prevents firing on stale post-event swap. File-swap is the clean signal: 0 B in normal operation (verified — 16 GB file swap PRIO −2 untouched; zram PRIO 5 ~3.2 GB/85% is the normal lean). WARN at file-swap > 128 MB (zram overflowing) → rate-limited snapshot. Heartbeat schema extended to 7 cols (added file_swap_used_mb, zram_swap_used_mb).
+- **Validated:** new-trigger detection + age guard (claude run, no restart); **induced fire via root service** → snapshot + real myscript restart (ActiveEnter→09:55:39); **startup-transient guard** suppressed 3 post-restart polls (age 8/16/24 s < 180 s test-60 s); cooldown guard (earlier test). Non-root claude cannot restart (interactive-auth denied) = safe.
+- **ARMED:** `systemctl enable --now memory-watchdog` → active+enabled, OOMScoreAdjust=−1000, MemoryMax=128M, no test override remains, armed instance quiet (file-swap 0). Heartbeat accumulating.
+- **BONUS root-cause confirmation:** across the induced restart, **MemAvailable 13 MB → 3333 MB → ~2074 MB and zram 3202 MB → 223 MB** — a myscript restart reclaims ~3.3 GB. Confirms the chronic near-0 state is myscript's accumulated 3-day footprint, and the watchdog's restart intervention genuinely reclaims memory (validated circuit-breaker). Box now in healthy ~2 GB-available state.
+- **1.1 + 1.2 COMPLETE.** Box is defended against the next storm. Next: mlock/footprint investigation (new item 1.5), then 1.3 (CMA) + 1.4 (power mode/reboot).
+
+**State:** 1.1 + 1.2 live on device (not git — device config). Watchdog ARMED. Branch `feature/jetson-phase1-platform-envelope`. Proceeding to mlock/footprint investigation (read-only; any config change will be gated).
+
+#### Item 1.5 (NEW) — mlock/footprint investigation: COMPLETE (analysis), reverses the "fix mlock" assumption
+**Data (read-only, 2026-06-15, fresh after the 13:55 induced restart):** `Max locked memory = 65536 bytes (64 KB)`, `LimitMEMLOCK=65536` on the unit → mlock of the 2.6 GB model is physically impossible; `VmLck: 0` confirms `--mlock` is a silent no-op (and always has been — matches the June 7 dump's `Mlocked:0kB`). Fresh: VmRSS 4.9 GB, VmSwap 0, available 1.9 Gi, zram ~empty, cgroup memory.current 6.0 GiB (incl. ~2.4 GB reclaimable model-file cache; ~0.25 GiB under MemoryMax). Model on GPU via full offload (nvmap 3.95 GB unified). n_ctx 32768.
+
+**Conclusions:**
+1. **Do NOT "fix" mlock (do NOT add LimitMEMLOCK).** With full GPU offload on unified memory the model is GPU-resident; throughput is already at the 15.3 tok/s baseline with mlock non-functional → mlock gives zero throughput benefit here. "Fixing" it would pin a largely redundant 2.6 GB CPU copy into UNSWAPPABLE RAM, cutting the swappable headroom the box needs to absorb transient bursts → would likely WORSEN OOM resilience, the opposite of the goal. The plan's implicit "fix mlock" framing is reversed by the data.
+2. **REMOVE `--mlock` from the start scripts** — it is a misleading no-op; removing it is truth-in-config and marginally improves resilience (model pages stay swap-eligible). Reversible; batched into the next gated start-script edit + restart.
+3. **The real footprint lever is `--ctx-size` (32K q8_0 KV).** It is the largest growable allocation and the driver of the fresh-1.9 Gi → 0 degradation over 3 days. Reducing it (e.g., 32K → 16K/8K) would create durable headroom and cut the chronic swap reliance. **DECISION NEEDED — workload-dependent:** what max context do the chat (qwen35) consumers actually need? (Embedding mode is a separate script/port, unaffected.) Pending user input.
+4. The armed watchdog (1.2) already covers the acute failure mode; the ctx decision is the durable fix for the chronic tightness.
+
+**1.1, 1.2, 1.5 complete. Remaining Phase 1: 1.3 (CMA pre-start drop-in), 1.4 (power-mode A/B + reboot). Start-script edits (remove --mlock ± reduce ctx) to be batched + gated. Power mode currently MAXN_SUPER (mode 2).**
+
+#### Item 1.3 — CMA pre-start defrag drop-in: COMPLETE & VERIFIED (2026-06-15)
+- ctx decision (user): **keep 32768** (no reduction). So start-script change = remove no-op `--mlock` only (1.5).
+- Backed up 7 scripts → `~/llm-server/backups/scripts-mlock-2026-06-15/`. Removed `--mlock` flag from `start-qwen35-server.sh` + `start-experiment.sh` (only scripts that had it; nemotron/embedding/llm/inline never did). Added header note.
+- Wrote `/etc/systemd/system/myscript.service.d/cma-compact.conf`: `ExecStartPre=+/bin/sh -c 'sync; drop_caches; compact_memory'` (failure-tolerant `|| true` so a missing knob never blocks startup). daemon-reload + gated restart.
+- **Verified:** 3 `/etc` drop-ins (cma-compact, memory-limits, oom-protect); real llama-server cmdline has **0 `--mlock`**; ctx 32768 kept; ExecStartPre registered + journal `Starting→Started` (no failure = defrag ran as root); smoke test OK. (Note: a `pgrep -f "llama-server --model"` self-matched the ssh command and gave a false `--mlock` hit — confirmed clean via `ps -C llama-server`.)
+
+#### Item 1.4 — Power-mode A/B: COMPLETE, MAXN_SUPER kept (2026-06-15)
+- jetson_clocks NOT pinned (schedutil, dynamic) → clean A/B (resolves U6). Thermals 46–48 °C, no throttle.
+- **`bench.sh` A/B (de-throttled, no-mlock, CMA, ctx 32768):** MAXN_SUPER **gen 15.2–15.3 tok/s / pp ~157** vs 25W **gen 14.0–14.1 / pp 144**. MAXN ~8–9% faster on generation — well beyond the 3% tiebreak. On a dedicated, well-cooled always-on inference box the throughput wins; the smolhub "25W sweet spot" was an efficiency call for a different use. **Decision: keep MAXN_SUPER (mode 2).**
+- Restored `nvpmodel -m 2`; `/var/lib/nvpmodel/status = pmode:0002` (persists across reboot, overriding conf `DEFAULT=1`). MAXN bench also = post-1.3 no-regression confirmation (15.3, at baseline).
+- **REMAINING:** reboot validation (persistence + full-stack auto-recovery: watchdog enabled, myscript recovers, MAXN persists) — gated, pending user go/no-go. This is the last Phase 1 action.
+
+#### Item 1.4 reboot validation — PASS; PHASE 1 COMPLETE (2026-06-15)
+Rebooted (was up 8 wk 5 d). Full stack cold-booted cleanly: uptime 0 min, myscript active + full GPU offload (999), **memory-watchdog auto-started** (enabled worked, PID 1084, default thresholds), **MAXN_SUPER persisted** (overrode conf DEFAULT=1 via /var/lib/nvpmodel/status), available 2.1→6.5 Gi fresh. Post-boot verify: oom_score_adj −900 live, MemoryHigh=infinity / MemoryMax=6400M / OOMScoreAdjust=−900, 3 /etc drop-ins intact, watchdog polling + heartbeat writing. **All 5 Phase 1 items (1.1–1.5) COMPLETE and reboot-durable. Box is hardened + self-recovering.** Net Phase 1 throughput unchanged at baseline 15.3 tok/s (MAXN). Next: IMPLEMENTATION_PLAN Phase 2 (llama.cpp rebuild + MTP) — maintenance window, not yet scheduled.
+
+#### JetPack 7.2 upgrade plan (user request, 2026-06-15)
+Wrote `JETPACK_UPGRADE_PLAN.md` — detailed full-reflash migration plan (6.2.2/R36.5.0/CUDA12.6 → 7.2/r39.2/Ubuntu24.04/kernel6.8/CUDA13.2.1). Decision-gated (≥2026-06-25, pending power-mode TNSPEC fix + ecosystem). Off-device backup of 35 GB (34 GB models) is the critical first phase; reflash wipes NVMe. Re-applies all Phase 1 work + absorbs IMPLEMENTATION_PLAN Phase 2 (llama.cpp rebuild against CUDA 13.2, mandatory). Primary strategic payoff: kernel 6.8 may structurally fix the NvMap OOM-accounting root cause (the recurring theme of Entries 023–028).
+
+---
+
+## Entry 030: Phase 2 — llama.cpp b8987 → b9652 Rebuild: KEEP (2026-06-15)
+**Date:** 2026-06-15 UTC
+**Operator:** Claude Code (implement-plan, gated live execution — IMPLEMENTATION_PLAN Phase 2)
+**Status:** REBUILD — system modified, KEPT after benchmark gate
+
+#### Window & build (2.1/2.2)
+- Maintenance window: backed up b8987 → `~/llm-server/backup-b8987-bin` (285 MB, 21 .so); MAINTENANCE flag (watchdog idle); stopped myscript (~40 min downtime total).
+- Checked out **b9652** (latest; 665 builds past b8987). **Build gotcha (record for the JetPack reflash rebuild too):** `cmake` configure failed `CMAKE_CUDA_COMPILER-NOTFOUND` because a non-login SSH shell lacks `/usr/local/cuda/bin` on PATH (systemd unit provides it). Fix: `export PATH=/usr/local/cuda/bin:$PATH; export CUDACXX=…/nvcc; -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc`. NOT a b9652 incompatibility.
+- Built clean with identical flags (`GGML_CUDA=ON, ARCH=87, F16, FA_ALL_QUANTS, NATIVE, Release`) at **-j4** (chosen over -j6: 5.1 Gi free + memory-heavy FA template instances). ~36 min, BUILD_EXIT:0. CUDA host compiler GNU 11.4, CUDA 12.6.68.
+
+#### Flag migration (2.3) — U1 RESOLVED, zero edits needed
+All 18 flags used across the 5 start scripts present in b9652 `--help`; argument forms verified compatible: `--flash-attn [on|off|auto]` (we use `on`), `--reasoning [on|off|auto]` (`off`), `--cache-type-k/v TYPE` (`q8_0`), `--n-gpu-layers N`. b9131 renames don't touch any flag we use; b9360 `LLAMA_ARG_*` moot (we use CLI not env). **No script changes.**
+
+#### Deploy + benchmark gate (2.4) — KEEP
+- CUDA inits fine under systemd ("full GPU offload (999 layers)", nvmap 3.59 GB — *less* than b8987's 3.95 GB). The `ggml_cuda_init: operation not supported` seen on a bare `--version` is the interactive-shell render-group artifact, not a defect.
+- **`bench.sh b9652`: gen 15.3–15.4 tok/s** (≥ 15.3 baseline), **RSS 4899 MB** (below b8987's ~5060). Journal clean (no CUDA/cublas errors over 30 min). pp metric erratic on repeat-identical prompts (27–30 vs ~150 cold) = **prompt-cache reuse artifact**, not a regression — gen is rock-solid across all 6 runs.
+- **Gate PASSED (gen ≥95%, RSS ≤+10%, clean journal) → KEPT b9652.** Window closed, inference back up.
+- Rollback asset `~/llm-server/backup-b8987-bin` retained for the 2-week stability window (delete ~2026-06-29 if stable). Rollback if ever needed: restore backup-b8987-bin → build/bin, `git checkout b8987`, restart.
+
+**Phase 2 COMPLETE. Next: IMPLEMENTATION_PLAN Phase 3 (MTP trial) — now unblocked (b9652 has MTP support, PR #22673).**
+
+---
+
+## Entry 031: Phase 3 — MTP Trial, Hour-1 Gate (2026-06-15)
+**Date:** 2026-06-15 UTC
+**Operator:** Claude Code (implement-plan, Phase 3 / CS-C)
+**Status:** TRIAL — MTP live in experiment slot (port 8080); hour-1 gate PASSED (mixed-positive); awaiting soak/promote/revert decision
+
+#### 3.1 research (resolved)
+- **Leak: GO.** The leak matching our exact `-ctk q8_0` MTP-prefill config (#23635) is FIXED in b9652 (#23907 Jun 3 + #24108 Jun 4; confirmed fixed @build 9518 < 9652). No workaround flag. Residual ~100 MB one-time PP.
+- **Acceptance: VERIFY ON-DEVICE.** Qwen3.5-4B is hybrid Gated-DeltaNet (24 GDN recurrent + 8 attention layers) — the architecture class #23322 flags for degraded MTP acceptance + full-prompt-reprocessing. Invocation: `--spec-type draft-mtp --spec-draft-n-max 3`, MTP head embedded in single GGUF, draft KV kept f16 (`-ctkd/-ctvd f16`). Acceptance observable via response `timings.draft_n`/`draft_n_accepted`.
+- Downloaded `unsloth/Qwen3.5-4B-MTP-GGUF` Q4_K_M (2.7 GB) → `~/llm-server/models/Qwen3.5-4B-MTP-Q4_K_M.gguf`. Rewrote `start-experiment.sh` (fixes the deleted-model landmine; mirrors qwen35 + MTP flags; `--log-disable` OMITTED for observability; no `--mlock`). Old script backed up.
+
+#### 3.2 deploy + hour-1 gate — PASSED (mixed)
+MTP loaded clean (MTP context ~202 MiB, draft-mtp n_max=3 n_embd=2560 f16 draft KV, full offload, no errors/OOM). nvmap 4.13 GB (+0.54 vs plain b9652).
+**Acceptance + throughput (baseline 15.3 tok/s):**
+| prompt | tok/s | vs base | acceptance |
+|--------|-------|---------|-----------|
+| code | 18.6 | +22% | 68.7% |
+| reasoning | 22.5 | +47% | 90.3% |
+| Q&A | 16.6 | +8.5% | 56.7% |
+| prose | 16.5 | +7.8% | 58.5% |
+| long 512tok | 15.2 | ~0% | 49.4% |
+
+Cumulative draft acceptance ~61% (836 acc / 1376 gen). RSS **5554 MB** (+655 vs plain 4899; ~846 MB under the 6400M cap), avail 1.2 Gi.
+**KEY OBSERVATION:** the `forcing full prompt re-processing due to lack of cache data (SWA/hybrid/recurrent memory)` warning FIRES on each fresh request (erases ~50 MiB checkpoint each time). This is a Qwen3.5-4B + b9652 recurrent-architecture property (present with/without MTP, now visible since logging is on) — cheap for short prompts, but costly for long-context/multi-turn (limits KV reuse → re-processes context per turn).
+**No hard abort tripped** (gains real, acceptance mostly >50%, RSS < cap, no errors). Verdict: workload-dependent win — strong on code/reasoning/short-Q&A, neutral on long generation. Output is lossless (speculative decode verifies tokens) — only speed varies.
+**Memory caveat:** +655 MB footprint on a chronically tight box puts RSS within ~850 MB of MemoryMax; soak must confirm RSS doesn't creep toward the cap (would trigger cgroup-OOM restart). Decision (soak / promote-now / revert / tune) pending user — production endpoint is currently serving MTP.
+
+---
+
+## Entry 032: Phase 3 — MTP Soak PASSED + PROMOTED to default (2026-06-16)
+**Date:** 2026-06-16 UTC
+**Operator:** Claude Code (implement-plan, Phase 3 / CS-C, items 3.3–3.4)
+**Status:** PROMOTED — MTP is now the default qwen35 mode. PHASE 3 COMPLETE.
+
+#### 3.3 soak — ~28h, PASSED
+User chose "run the soak" (criterion: stable → promote). MTP ran in the experiment slot 2026-06-15 15:47 → 2026-06-16 ~20:13 UTC (~28h):
+- **Zero incidents:** NRestarts=0, no OOM, no cgroup-max kill, no watchdog CRITICAL action. Service up continuously.
+- **RSS plateaued at 5839 MB**, flat for the final ~10h — the #23635 leak fix holds, no creep.
+- **file-swap stayed 0, zram empty** throughout — no swap pressure.
+- cgroup memory.current rode near MemoryMax (6398/6400 MiB) early (reclaiming cache, as designed), settled to ~5850 MiB (~550 MiB headroom).
+- **Bonus:** b9652's deterministic KV reservation (#23907) appears to have ALSO cured the old chronic degradation — the box held ~800 MB available steadily through the soak vs the old b8987 crawl to ~0 (Entry 028). Memory behavior is materially better than pre-Phase-2.
+- Fresh acceptance/throughput at 28h = identical to hour-1 (code 18.4, reason 22.4, qa 16.5, prose 16.4, long 15.1 tok/s) — stable, reproducible.
+
+#### 3.4 decision — PROMOTE (per user's stable→promote criterion)
+Memory stayed stable → promoted per the user's stated soak criterion. MTP is lossless (never slower than baseline worst-case; speculative decode verifies tokens) so promotion has no downside beyond the +~940 MB footprint, which the soak proved stable.
+- Backed up plain `start-qwen35-server.sh` → `~/llm-server/backups/qwen35-pre-mtp-2026-06-16/`. Rewrote it with the validated MTP config (MTP GGUF + `--spec-type draft-mtp --spec-draft-n-max 3 -ngld 999 -ctkd/-ctvd f16`, logging ON, no --mlock). `mode.txt` → qwen35, restart.
+- **Verified:** qwen35 mode loads MTP ("speculative decoding context initialized", full offload); reasoning prompt 21.8 tok/s @ 88% acceptance; service + watchdog active; RSS 5185 MB, avail 1.6 Gi. Reboot-durable (mode.txt=qwen35 + qwen35-server.sh carries the config).
+- **Net production gain:** workload-dependent +8–47% decode (strong on code/reasoning/short-Q&A, neutral on long-gen), lossless output. Experiment slot now free.
+- **Caveats carried forward:** (1) recurrent-memory "full prompt re-processing" churn limits cache reuse on long multi-turn — a Qwen3.5-4B/b9652 property, watch if multi-turn latency matters; (2) RSS ~5839 plateau is ~550 MB under the cap — watchdog + MemoryMax remain the backstop; (3) rollback = restore `qwen35-pre-mtp-2026-06-16/` (and optionally swap model back to `Qwen_Qwen3.5-4B-Q4_K_M.gguf`).
+
+**PHASE 3 COMPLETE. IMPLEMENTATION_PLAN Phases 1–3 all done. Phase 4 (Jackrong fine-tune trials) remains optional.**
+
+---
+
+## Entry 033: Ops Healthcheck — Tailnet outage root-caused (tailscaled fTPM panic) (2026-06-30)
+**Date:** 2026-06-30 UTC
+**Operator:** Claude Code (ad-hoc healthcheck, user request)
+**Status:** DIAGNOSED, report-only — **no remediation applied.** Box healthy + LLM serving; Tailscale node offline ~2 days due to a tailscaled crash-loop. Fix pending user decision.
+
+#### Reachability
+- Tailnet IP `100.106.252.90` dead from ubuntu-vm: 100% ICMP loss, `tailscale ping` no-reply, SSH timeout; coordination server "offline, last seen 2d ago, tx 624 rx 0". Other tailnet hosts (spark/homeserver/bond) reachable → isolated to Jetson.
+- **LAN `192.168.10.58` fully reachable** (sub-ms). `uptime` = **14d 21h (boot Mon 2026-06-15 14:12)** → no reboot, no kernel crash. The box never went down; only its tailnet link did.
+
+#### Root cause (PRIMARY) — tailscaled 1.98.4 panics on fTPM error
+- `tailscaled.service` = **failed** (enabled). Panic at startup: `panic: runtime error: slice bounds out of range [:-53212]` in `tailscale.com/feature/tpm` (`tpmSupported`→`TPMAvailable`→`canEncryptState`→`handleTPMFlags`→`main`), exit `2/INVALIDARGUMENT`. systemd retried, restart counter hit 6 → "start request repeated too quickly" → gave up. **Down since Jun 28 01:00:53 EDT.**
+- **Causal chain:** the `-53212` in the panic == kernel fTPM error `tpm tpm0: tpm_try_transmit: send(): error -53212` / `ftpm_tee_tpm_op_send: SUBMIT_COMMAND invoke error: 0xffff3024`. The OP-TEE firmware-TPM returns a negative errno; tailscale's TPM-availability probe (runs unconditionally at startup) slices a buffer with that value → panic. fTPM errors recur (Jun 28 01:00 & 06:15, Jun 29 00:10 & 16:30, Jun 30 01:40) → **persistent OP-TEE fTPM error state**, so tailscaled re-panics on every restart attempt.
+- **Correlated, unexplained:** `myscript` (llama-server) ALSO restarted at ~01:00:59 Jun 28 (clean — served requests immediately before and after), same minute as the tailscaled crash + fTPM-error onset, with NO reboot. No apt/unattended-upgrade ran Jun 26–28 (tailscale 1.98.4 was pinned 2026-05-30). Trigger of the simultaneous 01:00 restart is unidentified (suspect a maintenance timer / transient OP-TEE event). **Open item.**
+
+#### Secondary — 7 failed units, 6 are boot-time OOM collateral
+- Besides tailscaled: `nvphs`, `avahi-daemon`, `wpa_supplicant`, `networkd-dispatcher`, `ModemManager`, `kerneloops` — all `Result=oom-kill`, last active Jun 15 14:12 (boot). Collateral of the boot-time memory spike: `oom-protect.conf` shields llama-server, so the OOM killer takes expendable services instead. (dmesg ring buffer has since rotated; systemd unit state is the evidence.)
+- **Functional impact low:** wired Ethernet (not WiFi→wpa_supplicant moot), NetworkManager active (not systemd-networkd→networkd-dispatcher moot), no modem (ModemManager moot), no mDNS need (avahi). `nvphs` (Tegra power-hinting) noted but thermals are fine. `kerneloops` = crash-signature collector, no impact.
+
+#### Healthy (verified)
+- **LLM server OK:** `/health` ok; chat smoke test returned "OK"; ~21 tok/s eval; MTP draft acceptance ~95–99% (recent 872/874, window 11947/12513); build b9652; qwen35/MTP mode; no errors in unit log (only benign SWA full-reprocess notes per Entry 031).
+- **Memory** tight-but-stable: 6.2/7.4 Gi used, **477 Mi available**; cgroup 5.8/6.2 G; swap 88 Mi / 19 Gi (no thrash); **no llama-server OOM**.
+- **Thermals** 46–48 °C all zones, MAXN_SUPER, no throttle. **Disk** 17 % used / 661 G free, inodes 1 %.
+
+#### Remediation options (NONE applied — awaiting user)
+- **(A) Reboot** — clears OP-TEE/fTPM error state, brings up clean tailscaled, restores the OOM'd services, LLM auto-starts (~1–2 min, reboot-durable per Entry 032). Highest confidence; fixes tailnet + fTPM spam + failed units in one action. Cost: ends the 14-day uptime.
+- **(B) Downgrade/pin tailscale** (existing `--allow-downgrades` workflow) — avoids reboot but may not dodge the TPM probe and leaves the fTPM in a bad state.
+- **(C) Disable tailscale TPM state-sealing** via systemd drop-in env — avoids reboot, keeps LLM up; need to confirm exact 1.98.4 flag/env first.
+- **(D) Non-disruptive probe:** `systemctl reset-failed tailscaled && systemctl start tailscaled` — will re-panic if fTPM still erroring (it is as of Jun 30 01:40), but zero risk to the LLM server; useful to confirm transience.
+- **Recommendation:** (A), pending user OK on spending the uptime.
+
+#### Remediation APPLIED — Reboot (option A), 2026-06-30 12:13 EDT
+User chose (A). `sudo systemctl reboot` from LAN; box back in ~60s. **Full recovery verified:**
+- `tailscaled` = **active**; node back on tailnet as `active; direct 192.168.10.58:41641` (now a **direct** path — previously was DERP relay "mia"); `tailscale ping` pong 2ms; SSH over `jetson.k4jda.net` restored (rx>0).
+- **fTPM errors this boot: 0** — reboot cleared the OP-TEE error state (confirms the transient-fTPM hypothesis).
+- **Failed units: 0** (was 7) — the OOM'd system services all came back clean this boot.
+- **LLM server:** `myscript` active, `/health` ok, chat returns "OK", mode=qwen35 (MTP) — reboot-durable as designed (Entry 032).
+- **Memory** healthier post-boot: 4.9/7.4 Gi used, **1.8 Gi available** (vs 477 Mi pre-reboot — model just loaded, no fragmentation/creep yet).
+- **Carry-forward:** root cause (tailscale 1.98.4 + OP-TEE fTPM error → startup panic) is **latent, not eliminated** — a future fTPM hiccup can re-trigger it. If it recurs, apply (B) pin/downgrade or (C) disable TPM state-sealing for a durable fix. The 01:00 Jun 28 simultaneous-restart trigger remains unexplained.
+
+**OUTCOME: RESOLVED.** Tailnet access restored; box fully healthy.
+
+---
