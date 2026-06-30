@@ -2874,3 +2874,31 @@ User chose (A). `sudo systemctl reboot` from LAN; box back in ~60s. **Full recov
 **OUTCOME: RESOLVED.** Tailnet access restored; box fully healthy.
 
 ---
+
+## Entry 034: Ultra-Plan — Autonomous Hardening (Phase 5) (2026-06-30)
+**Date:** 2026-06-30 UTC
+**Operator:** Claude Code (ultra-plan, full rigid workflow)
+**Status:** PLANNED — IMPLEMENTATION_PLAN Phase 5 (CS-E, items 5.1–5.7) + Phase 6 (deferred) + ADR-0001 generated. Awaiting execution.
+
+#### Driver
+Healthcheck (Entry 033) → user asked for stability/security/performance recommendations → ultra-plan scoped to "all I can do autonomously over SSH." Read-only recon confirmed the posture before planning.
+
+#### Recon findings (this entry's evidence)
+- **LLM API is wide open:** all 5 `start-*.sh` bind `--host 0.0.0.0`, **no `--api-key`**. Proven by running a full `/v1/chat/completions` inference from ubuntu-vm (a different LAN host) with no creds. Open LAN ports: 22, 8080, **rpcbind/111**. **No firewall** (`ufw` absent, nft ruleset empty).
+- **`contact-center-lab` consumer** uses port **8080** via `jetson.k4jda.net` (tailnet) / `localhost` (`pipeline/config.yaml:61`), OpenAI-compatible, no key today → API-key change is **cross-repo**; firewall can be tailnet+loopback.
+- **Tailscale fTPM mechanism FOUND:** `tailscaled -encrypt-state` defaults to *"encrypt if supported"* → it **probes** the fTPM; the probe is what panics. Candidate fix `-encrypt-state=false`. State currently NOT sealed. **Caveat:** fTPM errors 0 post-reboot → fix unverifiable until next fault (U8).
+- **`needrestart` is NOT installed** → my Entry-033 "needrestart restarted both services at 01:00" hypothesis is **wrong**; the 01:00 dual-restart trigger remains unexplained (U10).
+- **homeserver already runs Grafana+Loki+Prometheus** (`open-brain-*`) → observability has a home; no new stack needed.
+- **`snapd`** (no app snaps) and **`rpcbind`** (no real dependents) safe to remove; ~120–150 MB RAM reclaimable (snapd 38 + containerd 30 + pulseaudio 16 + …).
+- **`claude` sudo = de-facto root** (`tee`/`cp`/`rm`/`chmod`/`systemctl` NOPASSWD); `id_claude_code` is the same key fleet-wide → one key leak = root everywhere. (Documented; client-side hygiene is Phase 6.)
+- **Clocks dynamic** (GPU 306/1020 MHz idle, schedutil) → TTFT ramp; `jetson_clocks` pin is a measured perf lever (5.5).
+
+#### Plan shape (7 change sets → Phase 5 items 5.1–5.7)
+5.1 service-surface reduction · 5.2 upgrade pinning/control · 5.3 Tailscale fTPM resilience · 5.4 crash-loop→reboot escalation · 5.5 pinned clocks + noatime · 5.6 API auth + ufw + SSH key-only (ADR-0001; staged, lockout-safe, cross-repo) · 5.7 observability instrumentation (alert destination flagged, U11). Sequenced safe→risky; 5.3 after 5.2; 5.6 after 5.1. Phase 6 = deferred/structural tracking (JetPack 7.2, VMM patch, 25W decision, alert destination, key hygiene).
+
+#### Key unknowns carried
+U8 (fTPM fix unverifiable now, High), U9 (prod consumer location), U10 (01:00 trigger), U11 (alert destination, High), U12 (BT/camera usage). ADR-0001 records the LLM-exposure decision (0.0.0.0+firewall+api-key over interface-bind/proxy/do-nothing).
+
+**Next: execute Phase 5 (await go), starting with the safe set (5.1, 5.2, 5.4) and handing 5.6 to a supervised run if preferred.**
+
+---

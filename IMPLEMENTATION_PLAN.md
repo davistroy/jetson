@@ -1,9 +1,9 @@
 # Implementation Plan
 
-**Generated:** 2026-06-11 16:38:06
-**Based On:** LAB_NOTEBOOK.md Entry 026 (biweekly recon, 2026-06-11), Entry 027 (ultra-plan analysis, 2026-06-11), live-device investigation (read-only SSH, 2026-06-11)
-**Total Phases:** 4
-**Estimated Total Effort:** ~350 LOC across ~14 files (11 on-device at `claude@jetson.k4jda.net`, 3 repo docs)
+**Generated:** 2026-06-11 16:38:06 (Phases 1–4); **Phase 5–6 appended:** 2026-06-30
+**Based On:** LAB_NOTEBOOK.md Entry 026/027 (recon + ultra-plan, 2026-06-11) for Phases 1–4; Entry 033 (healthcheck, 2026-06-30) + Entry 034 (ultra-plan hardening) + ADR-0001 for Phases 5–6; live-device investigation (read-only SSH)
+**Total Phases:** 6 (1–3 COMPLETE; 4 optional; 5 = autonomous hardening; 6 = deferred/structural)
+**Estimated Total Effort:** ~350 LOC (Phases 1–4) + ~7 hardening change sets across the Jetson + `contact-center-lab` (Phase 5)
 
 ---
 
@@ -38,6 +38,8 @@ Critical path: Phase 1 (one evening) → 1–2 day heartbeat settle → Phase 2 
 | 2 | llama.cpp rebuild + migration (CS-B) | ≥b9596 binary (same CMake flags), 5 start scripts migrated past b9131 renames, benchmark-gated keep/rollback | M (~8 files, ~80 LOC) | Phase 1 | Sequential |
 | 3 | MTP speculative decoding trial (CS-C) | Rewritten `start-experiment.sh`, MTP GGUF deployed, hour-1 + 48 h soak gates, promote/revert decision | S (~4 files, ~50 LOC) | Phase 1, Phase 2 | Sequential |
 | 4 | Fine-tune trials (CS-D, optional) | Two Jackrong fine-tunes evaluated against quality probe set, keep/promote/delete decision | S (~3 files, ~20 LOC) | Phase 3 | Sequential |
+| 5 | Autonomous hardening (CS-E) | Service-surface reduction, upgrade pinning, Tailscale fTPM resilience, crash-loop escalation, clocks/noatime, API auth + firewall + SSH key-only, observability | M (7 change sets, Jetson + contact-center-lab) | None (separate track) | Sequential, safe→risky |
+| 6 | Structural & deferred (tracking) | JetPack 7.2, NvMap VMM patch, 25W decision, alert destination, key hygiene | — (no executable items) | — | Tracking only |
 
 ### Execution Hints
 
@@ -53,6 +55,8 @@ Critical path: Phase 1 (one evening) → 1–2 day heartbeat settle → Phase 2 
 | Current | 1–2 | Running a current llama.cpp (~6 weeks of fixes incl. CVE posture for the LAN-exposed server) with migrated scripts that JetPack 7.2 will inherit |
 | Faster | 1–3 | MTP decode verdict delivered: either promoted (~20–30 tok/s) or rejected with measured evidence |
 | Complete | 1–4 | Fine-tune candidates dispositioned |
+| Hardened | 5 | LLM API authenticated + firewalled; RAM headroom reclaimed; Tailscale fTPM-resilient; crash-loop self-heals; surprise auto-upgrades pinned out |
+| Observed | 5 (5.7) | Node falling off the tailnet produces an alert — the 2-day silent outage (Entry 033) can't recur unseen |
 
 <!-- BEGIN PHASES -->
 
@@ -647,6 +651,259 @@ Throughput is not the question here (same architecture) — quality is. Keep eve
 
 <!-- END DOD -->
 
+---
+
+## Phase 5: Autonomous Hardening (CS-E)
+
+**Based On:** LAB_NOTEBOOK Entry 033 (healthcheck, 2026-06-30) + Entry 034 (ultra-plan hardening analysis, 2026-06-30); ADR-0001 (LLM API exposure model)
+
+### Goals
+
+Close the confirmed gaps surfaced by the 2026-06-30 healthcheck **without physical access**: reclaim RAM + shrink attack surface, stop silent auto-upgrades from restarting Tailscale into the fTPM panic, make the node resilient to the fTPM crash and to CUDA crash-loops, authenticate + firewall the open LLM API, and instrument the node so the next outage is not silent. This is a **separate hardening track** — it does not depend on Phases 1–4 and can run independently — but its seven work items are sequenced internally safe→risky.
+
+### Scope & Conventions (Phase 5)
+
+- `SSH="ssh -i ~/.ssh/id_claude_code claude@jetson.k4jda.net"`. **LAN fallback `claude@192.168.10.58` is MANDATORY for 5.3 and 5.6** (they restart Tailscale / change the firewall; the tailnet path can drop — Entry 033).
+- Back up every on-box file to `~/llm-server/backups/hardening-<date>/` before edit (constitution: not git-recoverable).
+- LLM API key stored in **Bitwarden `dev/jetson/llm-api-key`**; on-box copy is a root-owned `~/llm-server/.apikey`; never committed.
+- **NEVER `systemctl revert myscript`** (deletes `oom-protect.conf`).
+
+### Work Items
+
+#### 5.1 — Service-surface reduction (H1)
+
+**Status: PENDING**
+**Model Tier: sonnet**
+**Requirement Refs:** Entry 033 (boot-OOM units), Entry 034 H1; recommendations P0-5 + P1-2
+**Depends On:** None
+**Files Affected:**
+- System services (no repo files): `rpcbind.socket/.service`, `containerd` + `docker.socket`, `pulseaudio`, `ModemManager`, `bluetooth`, `nvargus-daemon` — disabled
+- `snapd` (+ base snaps) — purged
+
+**Description:**
+Reclaim ~120–150 MB RAM (real OOM headroom on the 8 GB box) and shrink attack surface. `rpcbind` (`0.0.0.0:111`, no real dependents — verified) and `snapd` (no app snaps installed — verified) are removed; the rest are disabled (not purged) so they're reversible if a future need (camera/BT) appears. `render` group and any CUDA/serving dependency are never touched.
+
+**Tasks:**
+1. [ ] `sudo systemctl disable --now rpcbind.socket rpcbind`
+2. [ ] `sudo systemctl disable --now pulseaudio ModemManager bluetooth nvargus-daemon containerd docker.socket docker` (keep packages)
+3. [ ] `sudo apt-get purge -y snapd && sudo rm -rf /var/cache/snapd ~/snap`
+4. [ ] Reboot; re-check `systemctl --failed`, `free -h`, `ss -tlnH`, LLM `/health`
+
+**Acceptance Criteria:**
+- [ ] WHEN `ss -tlnH` runs THEN no listener SHALL be on `0.0.0.0:111`
+- [ ] WHEN `free -h` runs after reboot THEN `available` SHALL be ≥ ~100 MB higher than the pre-change baseline (Entry 033: 477 MiB)
+- [ ] WHEN `systemctl is-active <each disabled unit>` runs THEN it SHALL report `inactive`
+- [ ] WHEN the post-reboot smoke test runs THEN port 8080 SHALL serve a completion with full GPU offload
+- [ ] Backup/record of disabled units captured for rollback
+
+**Notes:** Rollback = `systemctl enable --now <unit>`; `apt-get install snapd`. U-5: if `nvargus-daemon`/`bluetooth` turn out to be used, re-enable (disable-not-purge keeps this cheap).
+
+#### 5.2 — Upgrade control + package pinning (H2)
+
+**Status: PENDING**
+**Model Tier: sonnet**
+**Requirement Refs:** Entry 033 (silent-upgrade vector), Entry 034 H2; recommendation P0-4
+**Depends On:** None (do before 5.3 so the fTPM fix can't be reverted by an upgrade)
+**Files Affected:**
+- `apt-mark` holds: `tailscale`, `nvidia-l4t-*` / `cuda-*` core meta
+- `/etc/apt/apt.conf.d/52unattended-custom` (new)
+
+**Description:**
+Remove the silent-upgrade vector that can swap/restart `tailscaled` into the fTPM panic, and prevent a surprise CUDA/L4T bump from desyncing the local llama.cpp build — while keeping security patches. Holds the fragile packages; restricts `unattended-upgrades` to security origins with `Automatic-Reboot "false"`.
+
+**Tasks:**
+1. [ ] `sudo apt-mark hold tailscale` + hold the L4T/CUDA core meta-packages
+2. [ ] Write `52unattended-custom`: security-origins only, `Unattended-Upgrade::Automatic-Reboot "false"`
+3. [ ] Verify: `apt-mark showhold` and `sudo unattended-upgrade --dry-run`
+
+**Acceptance Criteria:**
+- [ ] WHEN `apt-mark showhold` runs THEN it SHALL list `tailscale` (and the L4T/CUDA holds)
+- [ ] WHEN `unattended-upgrade --dry-run` runs THEN it SHALL show only security-origin candidates and SHALL NOT propose `tailscale`
+- [ ] Config file is backed up / reversible
+
+**Notes:** Rollback = `apt-mark unhold ...`; delete the conf. Does NOT solve the unexplained 01:00 dual-restart (U-3) — it mitigates the Tailscale-restart consequence regardless.
+
+#### 5.3 — Tailscale fTPM resilience (H3)
+
+**Status: PENDING**
+**Model Tier: sonnet**
+**Requirement Refs:** Entry 033 (fTPM panic root cause), Entry 034 H3
+**Depends On:** 5.2 (holds keep the fix from being upgraded away)
+**Files Affected:**
+- `/etc/default/tailscaled` (`FLAGS=` add `-encrypt-state=false`) or a `tailscaled` systemd drop-in
+
+**Description:**
+`tailscaled` defaults to *"encrypt state if supported"*, which **probes** the flaky OP-TEE fTPM; the probe feeds the fTPM errno into a slice → panic (Entry 033). Setting `-encrypt-state=false` is the least-invasive candidate to skip the probe. **Validation is limited:** fTPM errors are 0 post-reboot, so the panic cannot be reproduced on demand — this item applies the best candidate, holds the package (5.2), and leans on 5.7's tailnet-down watchdog as the safety net. Fallbacks if the probe still fires at the next fault: pin/downgrade Tailscale, or blacklist the `tpm_ftpm_tee` module.
+
+**Tasks:**
+1. [ ] **Via LAN fallback** (`claude@192.168.10.58`): back up `/etc/default/tailscaled`; add `-encrypt-state=false`
+2. [ ] `sudo systemctl restart tailscaled`; confirm reconnect (`tailscale status` online, no `panic` in journal)
+3. [ ] From ubuntu-vm: `tailscale ping jetson` succeeds
+4. [ ] Document U-1 (cannot fully validate until next fTPM fault) in the notebook
+
+**Acceptance Criteria:**
+- [ ] WHEN `tailscaled` is restarted THEN `systemctl is-active tailscaled` SHALL be `active` and `journalctl -u tailscaled -b | grep -i panic` SHALL be empty
+- [ ] WHEN `tailscale ping jetson` runs from another tailnet host THEN it SHALL pong
+- [ ] WHEN the change is applied THEN access to the box over the LAN SHALL be unaffected throughout
+
+**Notes:** Rollback = remove the flag, restart. U-1 (High): efficacy unverifiable until the fault recurs; 5.7 watchdog converts a recurrence from a silent 2-day outage into an alert.
+
+#### 5.4 — Service robustness: crash-loop escalation (H4)
+
+**Status: PENDING**
+**Model Tier: sonnet**
+**Requirement Refs:** JETSON_CONFIG gotcha (crash-loops fragment CUDA mem), Entry 034 H4; recommendation P1-3
+**Depends On:** None
+**Files Affected:**
+- `myscript.service` drop-in (new `crash-escalate.conf`)
+
+**Description:**
+A genuine wedge currently retries every 5 s forever, fragmenting CUDA memory (documented gotcha). Add a conservative `StartLimit` that triggers a reboot after repeated rapid failures (reboot is durable — Entry 032), so the box self-heals instead of looping. Thresholds set high enough that normal restarts never trip it.
+
+**Tasks:**
+1. [ ] Add drop-in: `StartLimitIntervalSec=600`, `StartLimitBurst=6`, `StartLimitAction=reboot-force` (tune conservatively)
+2. [ ] `systemctl daemon-reload`; `systemd-analyze verify myscript.service`
+3. [ ] Confirm config via `systemctl show -p StartLimitBurst,StartLimitAction myscript`
+
+**Acceptance Criteria:**
+- [ ] WHEN `systemctl show -p StartLimitAction myscript` runs THEN it SHALL report `reboot-force` (or chosen action)
+- [ ] WHEN a normal single kill+restart occurs THEN no reboot SHALL be triggered (burst not exceeded)
+- [ ] Drop-in does not collide with `oom-protect.conf` / `memory-limits.conf` (verify `systemctl cat`)
+
+**Notes:** Rollback = remove the drop-in + reload. Induced-fire test (6 fast kills) is OPTIONAL and risky on prod — assert via config inspection unless a maintenance window is available.
+
+#### 5.5 — Performance: pinned clocks + noatime (H5)
+
+**Status: PENDING**
+**Model Tier: sonnet**
+**Requirement Refs:** Entry 034 H5 / P2-1, P2-2; existing baseline (MAXN_SUPER kept)
+**Depends On:** None
+**Files Affected:**
+- `jetson_clocks` boot-persistent systemd unit (new)
+- `/etc/fstab` (root mount → add `noatime`)
+
+**Description:**
+GPU idles at 306/1020 MHz with on-demand DVFS; first-token latency eats a clock ramp. A boot-persistent `jetson_clocks` (after `nvpmodel`) pins max clocks for lower/steadier TTFT — **kept only if a bench A/B shows improvement** without thermal concern (headroom exists at 46–48 °C). `noatime` on the NVMe root is an unconditional small write-reduction win.
+
+**Tasks:**
+1. [ ] `bench.sh` TTFT/throughput baseline (clocks dynamic)
+2. [ ] Add `jetson_clocks` systemd unit (ordered after nvpmodel); apply; re-bench
+3. [ ] Decision: keep pinned only if TTFT improves materially; else revert
+4. [ ] fstab: add `noatime` to `/`; back up fstab; `findmnt`/remount verify; reboot
+
+**Acceptance Criteria:**
+- [ ] WHEN `jetson_clocks --show` runs (if kept) THEN CPU/GPU CurrentFreq SHALL equal MaxFreq, and SHALL persist across reboot
+- [ ] WHEN `findmnt -no OPTIONS /` runs THEN it SHALL include `noatime`
+- [ ] WHEN the device reboots THEN it SHALL boot cleanly and `myscript` SHALL serve (fstab change is safe)
+- [ ] Bench delta recorded in LAB_NOTEBOOK / JETSON_BASELINE
+
+**Notes:** Rollback = remove the unit; restore fstab backup. Tradeoff: pinned clocks raise idle power 24/7 (U-6 reuse). 25 W-vs-MAXN re-evaluation is **Phase 6 (deferred — your decision)**.
+
+#### 5.6 — Access control: API auth + firewall + SSH key-only (H6)
+
+**Status: PENDING**
+**Model Tier: opus** *(highest blast radius; cross-repo; self-lockout risk)*
+**Requirement Refs:** Entry 034 H6 / P0-2, P0-3, P1-4; **ADR-0001**
+**Depends On:** 5.1 (rpcbind gone before firewalling)
+**Files Affected:**
+- Jetson: `~/llm-server/start-qwen35-server.sh`, `start-nemotron-server.sh`, `start-embedding-server.sh`, `start-experiment.sh`, `start-server.sh` (add `--api-key`); `~/llm-server/.apikey` (root-owned); `ufw` rules; `/etc/ssh/sshd_config.d/`
+- **`contact-center-lab` (repo):** `pipeline/config.yaml` + LLM client (send key via env)
+- Bitwarden: `dev/jetson/llm-api-key`
+
+**Description:**
+Per ADR-0001, defense-in-depth on the confirmed-open LLM API. Staged, lockout-safe, cross-repo. **Every step verified before the next.**
+
+**Tasks:**
+1. [ ] Generate key → Bitwarden + root-owned `~/llm-server/.apikey`; add `--api-key` to all 5 start scripts; restart; verify authed→200, unauthed→401
+2. [ ] Update `contact-center-lab` `pipeline/config.yaml` + client to send the key via env (placeholder in git); smoke-test the consumer
+3. [ ] **ufw with dead-man's-switch:** schedule `sudo ufw disable` via `at now+5min`; set default-deny-in; allow `22` from LAN+`100.64.0.0/10`; allow `8080,8081` from `100.64.0.0/10`+loopback; enable; **verify access from a fresh LAN session AND over the tailnet**; then cancel the `at` job
+4. [ ] sshd: `PasswordAuthentication no` + `KbdInteractiveAuthentication no` in a drop-in; `sshd -t`; reload; **verify key login in a new session before closing the current one**
+
+**Acceptance Criteria:**
+- [ ] WHEN an unauthenticated `/v1/chat/completions` is sent from another LAN host THEN it SHALL be refused (401 or connection blocked)
+- [ ] WHEN an authenticated request is sent over the tailnet THEN it SHALL return 200
+- [ ] WHEN the `contact-center-lab` pipeline smoke test runs THEN it SHALL succeed against the key-protected endpoint
+- [ ] WHEN a password SSH login is attempted THEN it SHALL be refused; key login SHALL succeed
+- [ ] WHEN `ufw status` runs THEN default-deny-incoming SHALL be set with only the intended allow rules
+- [ ] No self-lockout: admin access retained over both LAN and tailnet throughout
+
+**Notes:** Rollback = `ufw disable`; restore sshd backup + reload; remove `--api-key`. U-2: confirm where the *prod* pipeline runs before firewalling (add a LAN allow rule if it's a specific LAN host). This is the one item to hand to a supervised session if you'd rather not run it unattended.
+
+#### 5.7 — Observability instrumentation (H7)
+
+**Status: PENDING**
+**Model Tier: sonnet**
+**Requirement Refs:** Entry 033 (2-day silent outage — the headline lesson), Entry 034 P0-1
+**Depends On:** 5.1 (defines the expected-services baseline to assert)
+**Files Affected:**
+- Jetson: `node_exporter` (or a heartbeat script) + systemd unit/timer
+- **Flagged (needs decision):** `homeserver` open-brain Prometheus scrape + Grafana alert rule + contact point
+
+**Description:**
+The defining failure of Entry 033 was that nobody knew the node was down. **Autonomous part:** instrument the Jetson — `node_exporter` (or a 30-line heartbeat checking tailnet + LAN + `/health`) — and a self-contained external check. **Flagged part (U-4):** wire it to the existing `open-brain` Prometheus/Grafana on homeserver (scrape + alert) → a notification contact point. The contact point destination needs your input, and editing the open-brain stack requires backing up its config first (constitution).
+
+**Tasks:**
+1. [ ] Deploy Jetson `node_exporter` (or heartbeat) + systemd unit; verify metrics/heartbeat emit
+2. [ ] Stand up a self-contained external reachability check (tailnet + LAN + `/health`)
+3. [ ] **[FLAGGED]** With approval + a notification destination: back up open-brain Prom/Graf config, add a Jetson scrape/blackbox probe + a "node down / health-fail" alert rule
+4. [ ] Induced-failure test: stop `tailscaled`, confirm the alert path fires
+
+**Acceptance Criteria:**
+- [ ] WHEN `node_exporter`/heartbeat runs THEN Jetson metrics SHALL be scrapeable / the heartbeat SHALL be observable
+- [ ] WHEN the Jetson is made unreachable (test) THEN an alert SHALL be produced within the poll interval (once the flagged wiring + destination exist)
+- [ ] Open-brain config backed up before any edit; change reversible
+
+**Notes:** U-4 (High for end-to-end value): the alert *destination* is the one piece I can't choose for you. Options surfaced: existing Grafana contact point, ntfy, push, or a Claude-Code-Remote scheduled trigger that pings on failure.
+
+### Phase 5 Testing Requirements
+
+- [ ] Post-reboot `free -h` headroom delta recorded (5.1)
+- [ ] `unattended-upgrade --dry-run` shows security-only, no tailscale (5.2)
+- [ ] `tailscaled` restart shows no panic; tailnet ping ok (5.3)
+- [ ] `StartLimitAction` asserted; no collision with existing drop-ins (5.4)
+- [ ] Bench A/B for pinned clocks; clean reboot with noatime (5.5)
+- [ ] Unauthed→401, authed→200, consumer smoke test green, no self-lockout (5.6)
+- [ ] Metrics/heartbeat emit; induced-failure alert fires (5.7)
+
+### Phase 5 Completion Checklist
+
+- [ ] All work items complete (or explicitly deferred — note in notebook)
+- [ ] LLM API no longer reachable unauthenticated from an arbitrary LAN host
+- [ ] Node falls-off-tailnet → alerts (no more silent outages), pending U-4 destination
+- [ ] RAM headroom improved; failed-units count reduced on clean boot
+- [ ] All backups present in `~/llm-server/backups/hardening-<date>/`; ADR-0001 accepted
+- [ ] LAB_NOTEBOOK Phase 5 entry written; JETSON_CONFIG/BASELINE updated to match
+
+### Definition of Done (Runnable)
+<!-- BEGIN DOD -->
+
+| Check | Command | Pass Criteria |
+|-------|---------|---------------|
+| No rpcbind / headroom | `$SSH "ss -tlnH \| grep -c ':111'; free -m \| awk '/Mem/{print \$7}'"` | `0`; available ↑ vs 477 MiB |
+| Pkg holds | `$SSH "apt-mark showhold"` | includes `tailscale` |
+| Tailscale healthy | `$SSH "systemctl is-active tailscaled"` + `journalctl -u tailscaled -b \| grep -ci panic` | `active`; `0` |
+| Crash escalation | `$SSH "systemctl show -p StartLimitAction myscript"` | non-default action set |
+| noatime | `$SSH "findmnt -no OPTIONS /"` | contains `noatime` |
+| API auth (from a 2nd host) | `curl -s -o /dev/null -w '%{http_code}' http://192.168.10.58:8080/v1/models` | `401` or refused |
+| SSH key-only | `$SSH "sudo sshd -T \| grep -i passwordauthentication"` | `passwordauthentication no` |
+| Observability | heartbeat/metric present; induced-failure alert fires | alert produced |
+
+<!-- END DOD -->
+
+---
+
+## Phase 6: Structural & Deferred (tracking only)
+
+**Status: DEFERRED** — no executable work items; tracked here so the out-of-scope items aren't lost. Each needs physical access, a heavier rebuild, or a Troy decision.
+
+| Item | Why deferred | Trigger / next step |
+|------|--------------|---------------------|
+| **JetPack 7.2 reflash** (kernel 6.8 — the structural NvMap-OOM fix) | Full USB reflash; needs console/physical; power-mode TNSPEC bug + CUDA-13.2 ecosystem breakage | See `JETPACK_UPGRADE_PLAN.md`; re-evaluate per JETSON_BASELINE recon triggers (7.2.x point release) |
+| **NvMap VMM allocator patch** (`GGML_CUDA_VMM_BUFFERS=1`, #23747) | Unmerged local patch = rebuild + ongoing maintenance | Fold into the next llama.cpp rebuild or the 7.2 migration |
+| **25 W vs MAXN_SUPER** re-decision | A power/throughput tradeoff decision, not autonomous | Pair with 5.5 pinned-clocks data; Troy decides |
+| **Alert notification destination** (P0-1 end-to-end) | Needs a channel/credential (push/email/ntfy/Grafana contact point) | Troy provides; completes 5.7 wiring |
+| **SSH key passphrase / fleet key hygiene** | Client-side (the `id_claude_code` key = root across the fleet) | Troy hardens key storage; out of on-box scope |
+
 <!-- END PHASES -->
 
 ---
@@ -675,6 +932,11 @@ Throughput is not the question here (same architecture) — quality is. Keep eve
 | MTP acceptance too low for net gain | Med | Low | Hour-1 abort gate — cost of failure is one evening + one download | Open |
 | Fine-tune promotion regression | Low | Med | Frozen probe set + reasoning-loop tripwire + mandatory Troy sign-off for promotion | Open |
 | Maintenance window overruns (build > 90 min) | Med | Low | Attended window; server restorable to b8987 at any point; -j4 fallback | Open |
+| Firewall/SSH self-lockout (Phase 5.6) | Low | High | Dead-man's-switch (`at`-scheduled `ufw disable`), per-step verify from a 2nd session, LAN+tailnet both confirmed before commit; sshd backup | Open |
+| API-key breaks contact-center-lab (Phase 5.6) | Med | Med | Update consumer config atomically in the same change set; smoke-test before firewalling; rollback removes `--api-key` | Open |
+| fTPM fix (5.3) unverifiable until fault recurs | High | Med | Apply best candidate + package hold + 5.7 tailnet-down watchdog converts recurrence to an alert; documented fallbacks (pin/blacklist) | Open |
+| Disabling a service something quietly needs (5.1) | Low | Low | Disable-not-purge for ambiguous units (BT/camera); reboot-verify serving; reversible | Open |
+| StartLimitAction reboot-loop (5.4) | Low | Med | Conservative burst threshold; config-inspection over induced-fire on prod | Open |
 
 ---
 
@@ -689,6 +951,11 @@ Throughput is not the question here (same architecture) — quality is. Keep eve
 | U5 | Does cgroup MemoryCurrent capture NvMap-backed allocations (MemoryMax backstop efficacy)? | Medium | Phase 1, Item 1.2; Phase 3 containment | Compare MemoryCurrent vs RSS vs iovmm in heartbeat data during Phase 1 verification | Open |
 | U6 | jetson_clocks pinned state + nvpmodel reboot persistence | Low | Phase 1, Item 1.4 | `jetson_clocks --show` pre-bench; reboot persistence test in 1.4 | Open |
 | U7 | Build-time memory headroom at -j6 on new tree | Low | Phase 2, Item 2.2 | Monitor first build; -j4 fallback | Open |
+| U8 | Does `-encrypt-state=false` actually skip the panicking fTPM probe? | High | Phase 5, Item 5.3 | Apply + hold; confirm at next fault; fallbacks ready (pin/blacklist) | Open |
+| U9 | Where does the *prod* contact-center-lab pipeline run (localhost vs a specific tailnet/LAN host)? | Medium | Phase 5, Item 5.6 (firewall allow-list) | Confirm before firewalling; add a LAN allow rule if needed | Open |
+| U10 | The 01:00 Jun 28 dual-restart trigger (needrestart ruled out — not installed) | Medium | Phase 5, Item 5.2 completeness | 5.2 mitigates the Tailscale vector regardless; re-inspect at next apt-daily run | Open |
+| U11 | Notification destination for outage alerts | High (P0-1 value) | Phase 5, Item 5.7 / Phase 6 | Troy provides channel (Grafana contact point / ntfy / push) | Open |
+| U12 | Is `nvargus-daemon`/`bluetooth` ever used (camera/BT projects)? | Low | Phase 5, Item 5.1 | Disable-not-purge; reversible | Open |
 
 ---
 
@@ -717,8 +984,16 @@ Throughput is not the question here (same architecture) — quality is. Keep eve
 | MTP trial with leak + acceptance gates | Entry 026 Rec 4, Check 3 | 3 | 3.1–3.4 |
 | Fix stale start-experiment.sh | Entry 027 investigation surprise 3 | 3 | 3.2 |
 | Jackrong fine-tune trials | Entry 026 Rec 6 | 4 | 4.1–4.2 |
-| VMM patch watch (no local apply) | Entry 026 Rec 1(b) | — | Out of scope: baseline recon trigger |
-| JetPack 7.2 evaluation | Entry 026 Rec 3 | — | Out of scope: separate decision ~2026-06-25+ |
+| VMM patch watch (no local apply) | Entry 026 Rec 1(b) | 6 | Deferred: fold into next rebuild / 7.2 |
+| JetPack 7.2 evaluation | Entry 026 Rec 3 | 6 | Deferred: separate reflash decision |
+| Service-surface reduction (RAM + attack surface) | Entry 033/034 P0-5, P1-2 | 5 | 5.1 |
+| Upgrade pinning + control (silent-upgrade vector) | Entry 033/034 P0-4 | 5 | 5.2 |
+| Tailscale fTPM panic resilience | Entry 033 root cause | 5 | 5.3 |
+| Crash-loop → reboot escalation | JETSON_CONFIG gotcha, P1-3 | 5 | 5.4 |
+| Pinned clocks + noatime | Entry 034 P2-1/P2-2 | 5 | 5.5 |
+| LLM API auth + firewall + SSH key-only | Entry 034 P0-2/P0-3/P1-4, ADR-0001 | 5 | 5.6 |
+| Observability / outage alerting | Entry 033 (silent outage), P0-1 | 5 | 5.7 |
+| 25W vs MAXN re-decision; alert destination; key hygiene | Entry 034 P2-3, P0-1, security note | 6 | Deferred (Troy decision) |
 
 <!-- END TABLES -->
 
