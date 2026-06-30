@@ -109,7 +109,7 @@ The cleanest rollback from a failed/regressed 7.2 is to restore the working 6.2.
 
 - [ ] Restore SSH: add `id_claude_code` public key to `~/.ssh/authorized_keys`; verify `ssh -i ~/.ssh/id_claude_code claude@<ip>` works.
 - [ ] Recreate passwordless sudo: write `/etc/sudoers.d/claude` with the §3 NOPASSWD list (`visudo -c` to validate).
-- [ ] Rejoin Tailscale (`tailscale up`), confirm `jetson.k4jda.net` resolves.
+- [ ] Rejoin Tailscale (`tailscale up`), confirm `jetson.k4jda.net` resolves. **Then verify `tailscaled` doesn't crash-loop** (`systemctl is-active tailscaled`; `journalctl -u tailscaled | grep -i panic`): the 1.98.4+ TPM probe panics on OP-TEE fTPM errors (Entry 033), and JP7.2 ships a new fTPM/OP-TEE stack — if it panics, pin/downgrade tailscale or disable its TPM state-sealing via a systemd drop-in.
 - [ ] Add `claude` to the `render` group (CUDA needs `/dev/dri/renderD128`); verify `ls -l /dev/dri/renderD128` group + membership.
 - [ ] **Fix the power-mode TNSPEC bug (known 7.2 issue):** after flash, `nvpmodel -q` will likely show only 7W/15W (non-super TNSPEC `3767-300-0005-X`). Restore the **super** spec / 25W+MAXN modes:
   - Confirm `/etc/nvpmodel.conf` contains the MAXN_SUPER (id 2) and 25W (id 1) POWER_MODEL sections; if the flashed conf is the non-super variant, replace with the super `nvpmodel.conf` (from backup A.1, or the correct super conf for r39.2).

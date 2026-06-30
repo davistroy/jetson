@@ -2,8 +2,14 @@
 
 ## Access
 ```bash
-ssh claude@<jetson-tailscale-ip>
+# Tailnet (preferred — works from anywhere while the node is online):
+ssh -i ~/.ssh/id_claude_code claude@jetson.k4jda.net    # -> 100.106.252.90 (tailnet)
+# LAN (fallback — use when the node shows "offline" on Tailscale, see Troubleshooting):
+ssh -i ~/.ssh/id_claude_code claude@192.168.10.58
 ```
+- **Tailnet:** IP `100.106.252.90`, MagicDNS `jetson.tale-mamba.ts.net`; `jetson.k4jda.net` is a DNS alias to the tailnet IP (only reachable when Tailscale is up).
+- **LAN:** IP `192.168.10.58` on **wired Ethernet** (`enP8p1s0`); WiFi (`wlP1p1s0`) is down/unused.
+- User `claude` has passwordless sudo for ops commands (see JETSON_CONFIG.md).
 
 ## Key Paths
 
@@ -18,7 +24,7 @@ ssh claude@<jetson-tailscale-ip>
 
 ## Common Operations
 ```bash
-SSH="ssh claude@<jetson-tailscale-ip>"
+SSH="ssh -i ~/.ssh/id_claude_code claude@jetson.k4jda.net"   # or claude@192.168.10.58 over LAN
 
 $SSH "systemctl status myscript"
 $SSH "sudo journalctl -u myscript -f"
@@ -44,6 +50,11 @@ $SSH "curl -s http://localhost:8081/v1/embeddings -d '{\"input\":\"test\",\"mode
 - Default: **Qwen3.5-4B Q4_K_M** on port 8080, ~15.2–15.7 tok/s, 32768 ctx, q8_0 KV, mlock, full GPU offload
 - Other modes: `nemotron` (Nemotron-3-Nano-4B, port 8080), `embedding` (Qwen3-Embedding-4B, port 8081), `experiment` (A/B test slot, port 8080), `llm` (Qwen2.5-3B-Instruct, port 8080)
 - Systemd unit: `claude` user, `SupplementaryGroups=render`, `LD_LIBRARY_PATH`/`PATH`/`CUDA_HOME` set
+
+## Troubleshooting
+- **Node shows "offline" on Tailscale but you can't reach it → the box is almost certainly UP.** Check the **LAN IP `192.168.10.58`** and `uptime` before assuming a crash/reboot. Known failure mode (Entry 033, 2026-06-30): `tailscaled` 1.98.4 **panics at startup** (`slice bounds out of range [:-53212]`) when the OP-TEE firmware-TPM errors (`tpm_try_transmit: send(): error -53212`), and crash-loops until systemd gives up — taking only the tailnet link down while the host keeps serving. **Fix: reboot** (`sudo systemctl reboot`) clears the OP-TEE/fTPM state; everything is reboot-durable and auto-starts (~1–2 min). Durable alternatives if it recurs: pin/downgrade tailscale, or disable tailscale TPM state-sealing via a systemd drop-in.
+- **`systemctl --failed` shows ~6 system units failed after boot** (`nvphs`, `avahi-daemon`, `wpa_supplicant`, `networkd-dispatcher`, `ModemManager`, `kerneloops`) — expected, not a fault. The `oom-protect.conf` drop-in shields `llama-server` (OOMScoreAdjust −900), so the boot-time memory spike sacrifices these expendable services instead. No functional impact (wired Ethernet, NetworkManager, no modem). They clear on a clean reboot.
+- **Dual-environment hazard:** the repo's `main` is also pushed from the Windows/other Claude Code environment. `git fetch` at session start on either box to avoid divergence.
 
 ## Constraints
 - **8 GB unified RAM** — model + KV cache + OS all share it. Q4_K_M 4B = sweet spot; 7B works but tight.

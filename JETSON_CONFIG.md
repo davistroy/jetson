@@ -1,7 +1,7 @@
 # Jetson Orin Nano Super — Full Configuration Reference
 
-**Last updated:** 2026-04-30
-**Access:** Via Tailscale mesh network (always-on)
+**Last updated:** 2026-06-30 (network section corrected; Tailscale fTPM failure mode added — Entry 033)
+**Access:** Wired Ethernet LAN (`192.168.10.58`) + Tailscale mesh (`100.106.252.90` / `jetson.k4jda.net`)
 **Service user:** `claude` (LLM server and all managed services)
 
 This document describes the complete configuration of the Jetson device in enough detail to recreate it from a fresh JetPack install.
@@ -18,8 +18,9 @@ This document describes the complete configuration of the Jetson device in enoug
 | **GPU** | Ampere GA10B, sm_87, 1024 CUDA cores |
 | **RAM** | 7.4 GB LPDDR5 unified memory (CPU and GPU share) |
 | **Storage** | 824 GB NVMe SSD (boot drive, migrated from eMMC) |
-| **Swap** | 16 GB file-based (`/ssd/16GB.swap`) |
-| **WiFi** | Realtek adapter (`wlP1p1s0`) — DHCP on primary LAN |
+| **Swap** | 16 GB file-based (`/ssd/16GB.swap`) + 6× zram |
+| **Ethernet** | `enP8p1s0` — **primary LAN, DHCP `192.168.10.58/24`** (stable; gw `192.168.10.1`) |
+| **WiFi** | Realtek adapter (`wlP1p1s0`) — present but **DOWN/unused** (box runs on wired Ethernet) |
 | **Power Mode** | MAXN_SUPER |
 
 ---
@@ -53,12 +54,15 @@ export CUDACXX=$CUDA_HOME/bin/nvcc
 
 ## Network Access
 
-The device is always-on, accessible via Tailscale mesh network. SSH access uses key-based authentication.
+The device is always-on. SSH access uses key-based authentication (`ssh -i ~/.ssh/id_claude_code claude@…`).
 
-| Interface | Notes |
-|-----------|-------|
-| WiFi (`wlP1p1s0`) | DHCP on primary LAN |
-| Tailscale (`tailscale0`) | VPN mesh (private IP) |
+| Interface | Address | Notes |
+|-----------|---------|-------|
+| Ethernet (`enP8p1s0`) | `192.168.10.58/24` | **Primary LAN** (wired), default route via `192.168.10.1`. Use this when Tailscale shows the node offline. |
+| Tailscale (`tailscale0`) | `100.106.252.90` | Mesh VPN. MagicDNS `jetson.tale-mamba.ts.net`; `jetson.k4jda.net` aliases to the tailnet IP. **tailscale v1.98.4.** |
+| WiFi (`wlP1p1s0`) | — | Present but **down/unused**. (`wpa_supplicant` is OOM-killed at boot — harmless, see Gotchas.) |
+
+> **⚠ Tailscale fTPM crash (Entry 033, 2026-06-30):** `tailscaled` 1.98.4 panics at startup when the OP-TEE firmware-TPM errors (`tpm_try_transmit: send(): error -53212` → `slice bounds out of range [:-53212]`), crash-loops, and drops the tailnet link while the host stays up serving. The node then shows "offline, last seen …" on the tailnet even though it's healthy. **Recovery: reach it on the LAN IP and reboot** (`sudo systemctl reboot`) to clear the OP-TEE/fTPM state. Durable fixes if it recurs: pin/downgrade tailscale or disable tailscale TPM state-sealing.
 
 ---
 
@@ -260,7 +264,7 @@ All paths below are relative to the `claude` user (`/home/claude/`):
 | jtop | v4.3.2 — Jetson system monitor |
 | btop | Installed (`~/btop/`) |
 | NVM | Installed (Node v24.13.1) |
-| Tailscale | Active, connected to private tailnet |
+| Tailscale | **v1.98.4** — active on the tailnet (`100.106.252.90`). ⚠ panics on fTPM errors (see Network Access / Gotchas). |
 
 ---
 
@@ -304,3 +308,5 @@ All paths below are relative to the `claude` user (`/home/claude/`):
 - **NvMapMemAllocInternalTagged warnings** — these appear in logs even during normal operation and are non-fatal. They're a known Jetson unified memory behavior. Only a problem if followed by SEGV or OOM.
 - **Rapid crash-restart loops** can fragment CUDA memory and require a reboot to recover. The 5-second RestartSec in systemd helps but prolonged failures need manual intervention.
 - **`render` group required for CUDA** — `/dev/dri/renderD128` is owned by group `render`. The systemd unit uses `SupplementaryGroups=render` to grant access. Without this, CUDA init fails with "operation not supported" and the server falls back to CPU-only (~9 tok/s vs ~17 tok/s).
+- **Tailscale `tailscaled` 1.98.4 crash-loops on fTPM errors** (Entry 033) — the OP-TEE firmware-TPM intermittently errors (`tpm_try_transmit: send(): error -53212`); tailscale's startup TPM probe feeds that errno into a buffer slice → `panic: slice bounds out of range [:-53212]` → exit, systemd gives up after 6 retries. **Node falls off the tailnet while the box stays up.** A **reboot clears the OP-TEE state**; if it recurs, pin/downgrade tailscale or disable its TPM state-sealing. Diagnose first via the LAN IP, never assume the box crashed.
+- **Boot-time OOM sacrifices low-priority system services** — `oom-protect.conf` sets `OOMScoreAdjust=−900` on `llama-server`, so the boot memory spike OOM-kills expendable units instead (`nvphs`, `avahi-daemon`, `wpa_supplicant`, `networkd-dispatcher`, `ModemManager`, `kerneloops` show `Result=oom-kill` in `systemctl --failed`). Working as designed on this 8 GB box; no functional loss (wired Ethernet, NetworkManager, no modem). The kernel OOM lines rotate out of `dmesg` within days — `systemctl show -p Result <unit>` is the durable evidence.
