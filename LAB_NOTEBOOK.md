@@ -2831,3 +2831,46 @@ Memory stayed stable → promoted per the user's stated soak criterion. MTP is l
 **PHASE 3 COMPLETE. IMPLEMENTATION_PLAN Phases 1–3 all done. Phase 4 (Jackrong fine-tune trials) remains optional.**
 
 ---
+
+## Entry 033: Ops Healthcheck — Tailnet outage root-caused (tailscaled fTPM panic) (2026-06-30)
+**Date:** 2026-06-30 UTC
+**Operator:** Claude Code (ad-hoc healthcheck, user request)
+**Status:** DIAGNOSED, report-only — **no remediation applied.** Box healthy + LLM serving; Tailscale node offline ~2 days due to a tailscaled crash-loop. Fix pending user decision.
+
+#### Reachability
+- Tailnet IP `100.106.252.90` dead from ubuntu-vm: 100% ICMP loss, `tailscale ping` no-reply, SSH timeout; coordination server "offline, last seen 2d ago, tx 624 rx 0". Other tailnet hosts (spark/homeserver/bond) reachable → isolated to Jetson.
+- **LAN `192.168.10.58` fully reachable** (sub-ms). `uptime` = **14d 21h (boot Mon 2026-06-15 14:12)** → no reboot, no kernel crash. The box never went down; only its tailnet link did.
+
+#### Root cause (PRIMARY) — tailscaled 1.98.4 panics on fTPM error
+- `tailscaled.service` = **failed** (enabled). Panic at startup: `panic: runtime error: slice bounds out of range [:-53212]` in `tailscale.com/feature/tpm` (`tpmSupported`→`TPMAvailable`→`canEncryptState`→`handleTPMFlags`→`main`), exit `2/INVALIDARGUMENT`. systemd retried, restart counter hit 6 → "start request repeated too quickly" → gave up. **Down since Jun 28 01:00:53 EDT.**
+- **Causal chain:** the `-53212` in the panic == kernel fTPM error `tpm tpm0: tpm_try_transmit: send(): error -53212` / `ftpm_tee_tpm_op_send: SUBMIT_COMMAND invoke error: 0xffff3024`. The OP-TEE firmware-TPM returns a negative errno; tailscale's TPM-availability probe (runs unconditionally at startup) slices a buffer with that value → panic. fTPM errors recur (Jun 28 01:00 & 06:15, Jun 29 00:10 & 16:30, Jun 30 01:40) → **persistent OP-TEE fTPM error state**, so tailscaled re-panics on every restart attempt.
+- **Correlated, unexplained:** `myscript` (llama-server) ALSO restarted at ~01:00:59 Jun 28 (clean — served requests immediately before and after), same minute as the tailscaled crash + fTPM-error onset, with NO reboot. No apt/unattended-upgrade ran Jun 26–28 (tailscale 1.98.4 was pinned 2026-05-30). Trigger of the simultaneous 01:00 restart is unidentified (suspect a maintenance timer / transient OP-TEE event). **Open item.**
+
+#### Secondary — 7 failed units, 6 are boot-time OOM collateral
+- Besides tailscaled: `nvphs`, `avahi-daemon`, `wpa_supplicant`, `networkd-dispatcher`, `ModemManager`, `kerneloops` — all `Result=oom-kill`, last active Jun 15 14:12 (boot). Collateral of the boot-time memory spike: `oom-protect.conf` shields llama-server, so the OOM killer takes expendable services instead. (dmesg ring buffer has since rotated; systemd unit state is the evidence.)
+- **Functional impact low:** wired Ethernet (not WiFi→wpa_supplicant moot), NetworkManager active (not systemd-networkd→networkd-dispatcher moot), no modem (ModemManager moot), no mDNS need (avahi). `nvphs` (Tegra power-hinting) noted but thermals are fine. `kerneloops` = crash-signature collector, no impact.
+
+#### Healthy (verified)
+- **LLM server OK:** `/health` ok; chat smoke test returned "OK"; ~21 tok/s eval; MTP draft acceptance ~95–99% (recent 872/874, window 11947/12513); build b9652; qwen35/MTP mode; no errors in unit log (only benign SWA full-reprocess notes per Entry 031).
+- **Memory** tight-but-stable: 6.2/7.4 Gi used, **477 Mi available**; cgroup 5.8/6.2 G; swap 88 Mi / 19 Gi (no thrash); **no llama-server OOM**.
+- **Thermals** 46–48 °C all zones, MAXN_SUPER, no throttle. **Disk** 17 % used / 661 G free, inodes 1 %.
+
+#### Remediation options (NONE applied — awaiting user)
+- **(A) Reboot** — clears OP-TEE/fTPM error state, brings up clean tailscaled, restores the OOM'd services, LLM auto-starts (~1–2 min, reboot-durable per Entry 032). Highest confidence; fixes tailnet + fTPM spam + failed units in one action. Cost: ends the 14-day uptime.
+- **(B) Downgrade/pin tailscale** (existing `--allow-downgrades` workflow) — avoids reboot but may not dodge the TPM probe and leaves the fTPM in a bad state.
+- **(C) Disable tailscale TPM state-sealing** via systemd drop-in env — avoids reboot, keeps LLM up; need to confirm exact 1.98.4 flag/env first.
+- **(D) Non-disruptive probe:** `systemctl reset-failed tailscaled && systemctl start tailscaled` — will re-panic if fTPM still erroring (it is as of Jun 30 01:40), but zero risk to the LLM server; useful to confirm transience.
+- **Recommendation:** (A), pending user OK on spending the uptime.
+
+#### Remediation APPLIED — Reboot (option A), 2026-06-30 12:13 EDT
+User chose (A). `sudo systemctl reboot` from LAN; box back in ~60s. **Full recovery verified:**
+- `tailscaled` = **active**; node back on tailnet as `active; direct 192.168.10.58:41641` (now a **direct** path — previously was DERP relay "mia"); `tailscale ping` pong 2ms; SSH over `jetson.k4jda.net` restored (rx>0).
+- **fTPM errors this boot: 0** — reboot cleared the OP-TEE error state (confirms the transient-fTPM hypothesis).
+- **Failed units: 0** (was 7) — the OOM'd system services all came back clean this boot.
+- **LLM server:** `myscript` active, `/health` ok, chat returns "OK", mode=qwen35 (MTP) — reboot-durable as designed (Entry 032).
+- **Memory** healthier post-boot: 4.9/7.4 Gi used, **1.8 Gi available** (vs 477 Mi pre-reboot — model just loaded, no fragmentation/creep yet).
+- **Carry-forward:** root cause (tailscale 1.98.4 + OP-TEE fTPM error → startup panic) is **latent, not eliminated** — a future fTPM hiccup can re-trigger it. If it recurs, apply (B) pin/downgrade or (C) disable TPM state-sealing for a durable fix. The 01:00 Jun 28 simultaneous-restart trigger remains unexplained.
+
+**OUTCOME: RESOLVED.** Tailnet access restored; box fully healthy.
+
+---
