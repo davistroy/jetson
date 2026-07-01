@@ -50,7 +50,7 @@ $SSH "curl -s http://localhost:8081/v1/embeddings -H \"Authorization: Bearer \$(
 - **LLM API requires an API key.** Key file `~/llm-server/.apikey` (root/claude-owned, 600); source of truth in Bitwarden `dev/jetson/llm-api-key`. All 5 start scripts pass `--api-key-file`. Unauthed → 401; `/health` is public. Consumers send `Authorization: Bearer <key>` (contact-center-lab uses `${JETSON_LLM_API_KEY}`).
 - **Firewall (`ufw`) default-deny inbound.** Allowed: `lo`, `tailscale0` (full), and `22` from `192.168.10.0/24`. So **8080/8081 are reachable only over the tailnet + loopback — NOT the raw LAN.** (`sudo ufw status`; claude has NOPASSWD ufw via `/etc/sudoers.d/claude-ufw`.)
 - **SSH is key-only** (`/etc/ssh/sshd_config.d/00-hardening.conf`: PasswordAuthentication no).
-- **Health monitoring:** `ubuntu-vm` cron (`~/.local/bin/jetson-watch.sh`, `*/15`) pushes `jetson_up`/`tailnet_up`/`lan_up`/`llm_health` to the homeserver open-brain pushgateway → Prometheus/Grafana. (Alert *delivery* not yet wired — needs a Grafana contact point.)
+- **Health monitoring → see `OBSERVABILITY.md`** (integration contract). Interim: `ubuntu-vm` cron (`scripts/jetson-watch.sh` → `~/.local/bin/`, `*/15`) emits `jetson_up`/`tailnet_up`/`lan_up`/`llm_health`. **⚠ The push is currently broken** (HTTP 000) — the homeserver stack was rebuilt `open-brain-*` → `observability-*` with Prometheus/pushgateway bound to `127.0.0.1`. Integrate the Jetson via the **pull-based** path in `OBSERVABILITY.md` (node_exporter on the Jetson, scraped over the tailnet + Alertmanager rules).
 
 ## Architecture
 - llama.cpp b8987 (rebuilt 2026-04-30 from b8766, +9-12% throughput), CUDA 12.6
