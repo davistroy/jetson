@@ -70,3 +70,5 @@ $SSH "curl -s http://localhost:8081/v1/embeddings -H \"Authorization: Bearer \$(
 - Persistent changes require updating `myscript.service` + `daemon-reload`.
 - Startup scripts auto-drop GPU offload if free RAM < 4 GB (OOM guard).
 - `render` group required for CUDA (`/dev/dri/renderD128`) — already in systemd unit.
+
+Routine ops sessions: suggest `/fast`.
