@@ -2921,3 +2921,71 @@ Backups in `~/llm-server/backups/hardening-2026-06-30/`. All applied via the `cl
 **Phase 5 net: 5.1–5.6 COMPLETE + reboot-validated; 5.7 monitoring live, one decision (alert channel) from done. Phase 6 deferred items unchanged.**
 
 ---
+
+## Entry 035: Biweekly Recon — Landscape Stable, Box Healthy; NvMap env-var Mitigation + 25W-mode Re-Surface (2026-07-12)
+**Date:** 2026-07-12 22:44 EDT (2026-07-13 02:44 UTC)
+**Operator:** Claude Code (jetson-recon skill, headless/scheduled run — no user present)
+**Status:** RECON — no changes made to the device; JETSON_BASELINE.md tracking values NOT updated (headless, awaiting user confirmation — proposed changes listed below)
+
+Five parallel checks (4 web-research agents + 1 live SSH health check). Prior recon: Entry 026 (2026-06-11). Prior healthcheck: Entry 033 (2026-06-30).
+
+#### JetPack / Firmware — **LOW (hold at 6.2.2)**
+- **No JetPack newer than 7.2 for Orin Nano.** NVIDIA downloads page still lists JP7.2 / L4T r39.2 (dated 2026-06-02, CUDA 13.2.1, TensorRT 10.16.2) as current; no 7.2.1 / 7.3 in the archive. No CUDA bump beyond 13.2.1.
+- **TNSPEC / power-mode bug NOT fixed at source.** Forum thread 375435 (NVIDIA eng., 2026-07-09) reframes the missing 25W/MAXN-SUPER-in-GUI + reboot-on-mode-change as *partly expected* ("after the GPU golden context is created, a power-mode change needing a different power-gating config must go through a reboot"); the boot-time black-screen is documented as **L4T r39.2 release-note erratum 6236259** (workaround: headless boot). Still workaround-only (`nvpmodel` from terminal).
+- **JP7.2 prebuilt ecosystem still broken:** NVIDIA PyTorch container `26.06-py3` **missing compute-capability 8.7 kernels** for Orin Nano (thread 375642, July 2026) → GPU accel broken out-of-box. dustynv/PyTorch wheels still catching up.
+- Upgrade path unchanged: **full USB-ISO reflash** (SD-card images discontinued), no OTA from 6.2.2.
+
+#### llama.cpp Releases — **MEDIUM (rebuild optional, low urgency)**
+- **Latest = b9982** (2026-07-13), **330 builds ahead of running b9652.** No new *Jetson-specific* gains in the span.
+- **`GGML_CUDA_VMM_BUFFERS` / NvMap patch #23747 → CLOSED WONTFIX (2026-05-27).** It routed weight allocs through `cuMemCreate`/`cuMemMap` to defeat the **Jetson L4T 36.4.7+ NvMap allocation cap (CVE-2025-33177)** — our OOM root-cause candidate — but maintainer closed it ("moving away from VMM entirely" + AI-generated-code objections). **Upstream is hostile to VMM; stop watching for resubmission.** Carry as a *local fork patch* only if the NvMap cap is ever confirmed as our OOM root cause.
+- **b9974** guards `cudaMemGetInfo()` against a *fatal crash* when a CUDA device reports no free memory — a cheap reliability win for this 8 GB unified box whenever we next rebuild.
+- **#24360** (CUDA `ssm_scan_f32` data-race fix) MERGED — but SSM/Mamba-only; our Qwen3.5-4B transformer never exercises it → no impact.
+- **No CUDA build-flag or CLI-arg breakage** since b9652 (`-DGGML_CUDA=ON`, `--flash-attn`, q8_0 KV flags, `--api-key-file`, MTP/draft args all still valid). Skim `docs/build.md` before any actual rebuild (vague 3rd-party "breaking changes" notes in b9733→b9821, none CUDA-specific).
+
+#### Small Model Landscape — **LOW / SKIP (deployed stack stands)**
+- **No 4B-class Qwen3.6 exists** (confirmed via Unsloth docs + direct HF search): Qwen3.6 (Apr 2026) = **27B dense + 35B-A3B MoE only**. The "Qwen3.6-4B pocket model ~2.5 GB" claim traces to AI-content-farm articles — **no such HF repo.** **Qwen3.7 shipped hosted-only (no open weights).** The expected Q3-2026 4B-class Qwen3.6 has NOT materialized.
+- **No new fitting (<3 GB Q4_K_M) dense base model** from any vendor since the 2026-06-11 baseline. Gemma 4 (E4B/31B/26B-A4B), Granite-4.0 (7B/32B), Qwen3.6 all exceed the 3 GB ceiling (E2B ~3.11 GB already on-disk and borderline). **Qwen3.5-4B + Qwen3-Embedding-4B remain best-in-class for this device.**
+- **Embeddings:** HOLD Qwen3-Embedding-4B — still tops open-weight MMTEB; no fitting local model beats it (Jina v5-small 677M already on-disk is smaller/faster but lower quality; EmbeddingGemma ~300M lower; Gemini Embedding 2 is API-only).
+- Optional zero-cost experiment-slot A/B: `Jackrong/Qwen3.5-4B-Claude-4.6-Opus-Reasoning-Distilled-**v2**-GGUF` (same arch, Q4_K_M **2.71 GB, fits**; **−34% thinking length** 2829→1874 chars, +41% HumanEval-per-10k-chars, slight accuracy cost). Shorter chains = faster effective answers at ~16 tok/s. Caveat: repo dates 2026-04-05 (pre-baseline) — not new, just possibly un-trialed.
+
+#### Jetson Forum / Community — **ACTION-class technique (INFO trigger)**
+- **`GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` — NvMap/OOM mitigation with no upstream dependency** (NVIDIA forum "SENTINEL" thread 373627, **2026-06-17, post-baseline**). Stock llama.cpp CUDA builds fail on Orin Nano with `NvMapMemAllocInternalTagged: error 12` / `cudaMalloc: out of memory` because `cudaMalloc` requests dedicated VRAM this shared-memory SoC lacks. Fix: build `-DGGML_CUDA_ENABLE_UNIFIED_MEMORY=ON` **or** run with the **env var (no rebuild)** → switches to `cudaMallocManaged` (shared CPU/GPU pool). Confirmed JetPack 6.x / CUDA 12.6 / sm_87 — **exact match for our device.** Cross-confirmed by smolhub, which could not load *any* 4B model (">~1.1 GB contiguous CUDA buffers blocked"). We run 4B fine → we're either already near the edge or implicitly mitigating; this is the documented, upstream-independent alternative to the dead #23747.
+- **25W power mode (`nvpmodel -m 1`) re-confirmed Pareto-optimal** (smolhub: +35–47% output tok/s vs 15W at equal-or-better tok/J). **Device is currently on MAXN_SUPER (mode 2)** — per Entry 026, MAXN costs +17% power for −3..+8% throughput vs 25W. Standing efficiency recommendation, now independently re-corroborated.
+- Watch-list (not adopt): MTP+TurboQuant llama.cpp fork claims +30–40% on **Orin NX** (thread 372493, no Orin Nano data, no build flags). **TensorRT-Edge-LLM 0.8.0/0.9.0** = Jetson **Thor / NVFP4 (Blackwell) only** + requires JP7.2 → **not applicable** to our Ampere/JP6.2.2 box.
+
+#### Live Health — **HEALTHY** (all green; initial low tok/s was measurement noise, re-verified)
+- Service `myscript` active 1w4d (since 2026-07-01 18:55 EDT); **host uptime 12d** (boot ~2026-06-30, the Entry 034 reboot). Mode `qwen35`. Drop-ins intact: cma-compact, crash-escalate, memory-limits, oom-protect. Full MTP cmdline present (`--spec-type draft-mtp --spec-draft-n-max 3`, draft f16 KV, `--api-key-file`).
+- **RAM available 1.4 GB** (7.4 total / 5.1 used); **swap idle (1 MB / 19 GB)** — the old b8987 zram-thrash (Entry 028) is gone. **llama-server RSS 4952 MB** (below the 5839 MB MTP-soak plateau; idle). Disk 17%. Temps **~50–52 °C** idle (< 75 °C threshold). **0 failed units. No OOM since 2026-06-16** (`journalctl -u myscript` clean → confirms the Entry 032 b9652 OOM-resolution holds at 26 days). **No tailscaled fTPM panic this boot** (Entry 033 latent risk did not recur; reached box over the tailnet).
+- **Throughput:** first 47-token sample read **12.69 tok/s** (below the 15.3 floor) — investigated per systematic-debugging rather than reported as regression; a clean 3× re-measure on 190-token generations gave **16.56 / 16.85 / 16.90 tok/s**, squarely in the MTP band (15–22, ~18 typ). The low reading was short-sample / low-draft-acceptance variance, **not a regression.** PP ~30–106 tok/s.
+- **No config drift:** source HEAD `6eab47181` `git describe` = **b9652**; `llama-server --version` = `9652 (6eab47181)`; binary mtime 2026-06-15 (Entry 030 rebuild). Source == binary == b9652, clean working tree. (The `ggml_cuda_init: operation not supported` on a bare `--version` call is the expected non-`render`-group shell artifact — the GPU service itself is fine.)
+
+#### Cross-Correlated Findings
+1. **NvMap/OOM mitigation path shifted (Check 2 + Check 4 + baseline).** The upstream VMM route (#23747) is dead (WONTFIX); the forum's `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` env var is the surviving, upstream-independent mitigation for the same NvMap/CVE-2025-33177 cap. High-confidence (two independent sources + smolhub's 4B load-failure). **But not an active fire** — Check 5 shows 0 OOM in 26 days (b9652 already resolved it); this is a *preparedness/enabler* for larger-model or larger-KV configs, not an urgent fix.
+2. **25W power mode (Check 4 smolhub ↔ baseline Entry 026 smolhub) ↔ Check 5 confirms MAXN_SUPER active.** Two independent benchmarks say 25W is the efficiency sweet spot; the box is on MAXN_SUPER. Re-corroborated standing recommendation.
+3. **Landscape stability ⇒ low upgrade pressure.** No new fitting model (Check 3) + no urgent llama.cpp gain (Check 2) + JetPack hold (Check 1) + healthy device (Check 5) ⇒ current config remains optimal.
+
+#### Triggered Alerts
+- **jetpack** `(...TNSPEC...) AND (Orin Nano)` — keyword matched literally, **substantive condition NOT met** (no 7.2.1/7.3, bug reclassified as expected + erratum, ecosystem still broken) → reinforces HOLD, no reflash this cycle.
+- **llamacpp_release** `SM87/Jetson/Tegra/unified memory` — matched (Tegra launch-queue conditional already in b9652; b9974 OOM-crash guard); no *new* action.
+- **llamacpp_release** `VMM/cuMemCreate/NvMap` — matched → **#23747 CLOSED WONTFIX; RETIRE this trigger** (reframe to the env-var mitigation, see proposed baseline changes).
+- **huggingface** `Qwen4 OR Qwen3.5 successor` — matched (INFO): Qwen3.6/3.7 exist but **no fitting open-weight 4B** → not actionable.
+- **forum** `llama.cpp AND (performance OR optimization) AND jetson` — matched (INFO) → the unified-memory env-var technique.
+
+#### Overall: **WORTH WATCHING**
+No ACTION-trigger fired and the device is HEALTHY, so nothing is urgent — but three concrete, low-priority items are worth queuing (below). Config remains optimal; JetPack hold stands.
+
+#### Recommendations (all low-priority; none block anything)
+1. **Evaluate `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` as an OOM-guard / large-model enabler.** First read the current start scripts to see if it's already set; if not, test in the experiment slot (env var, no rebuild) to confirm it as the fallback path for 7B / larger-KV configs. Replaces the dead #23747 as our NvMap mitigation of record.
+2. **Consider `nvpmodel -m 1` (25W)** for efficiency — MAXN_SUPER is currently active and costs ~+17% power for ≤+8% throughput. Re-benchmark 25W vs MAXN on the actual Qwen3.5-4B-MTP workload before committing (note the JP-side reboot-on-mode-change behavior from Check 1).
+3. **Optional:** A/B `Jackrong Qwen3.5-4B-Opus-Reasoning-Distilled-v2` (2.71 GB, −34% thinking length) in the experiment slot — zero memory cost, potential faster effective answers at ~16 tok/s.
+4. **Rebuild to ~b9982 is optional** (b9974 OOM-crash guard is the main upside; no Jetson-specific perf gain). Defer unless bundled with (1).
+
+#### Proposed JETSON_BASELINE.md changes (NOT applied — headless run, needs user confirmation)
+- `Last recon:` 2026-06-11 → **2026-07-12**; `Last healthcheck:` → **2026-07-12** (healthy; 0 OOM/26d; no fTPM panic).
+- `llamacpp_latest_seen:` b9652 → **b9982** (running build stays b9652).
+- `models_last_checked_date:` 2026-06-11 → **2026-07-12**; `forum_last_checked_date:` 2026-06-11 → **2026-07-12**.
+- **Recon Triggers:** RETIRE the `VMM OR cuMemCreate OR NvMap → #23747 resubmitted` row (closed WONTFIX); replace with a row tracking `GGML_CUDA_ENABLE_UNIFIED_MEMORY` as the NvMap mitigation of record.
+- **Watch Items:** add (a) the `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` env-var mitigation; (b) b9982/b9974 OOM-crash guard; (c) confirmation that b9652 OOM-resolution holds (0 OOM/26d) — the Entry 032/OOM watch item can be downgraded; (d) reaffirm 25W-mode recommendation (box on MAXN_SUPER); (e) Jackrong Opus-distill-v2 as experiment-slot candidate; (f) JP7.2 hold reaffirmed (TNSPEC unfixed, ecosystem broken as of July 2026).
+- **Current Config section: unchanged** (reflects the actual running system; only Troy updates it after implementing a change).
+
+---
