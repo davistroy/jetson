@@ -837,7 +837,7 @@ Per ADR-0001, defense-in-depth on the confirmed-open LLM API. Staged, lockout-sa
 
 #### 5.7 — Observability instrumentation (H7)
 
-**Status: PARTIAL 2026-06-30 — monitoring LIVE; alert delivery pending (U11)** <!-- CCR-trigger approach INFEASIBLE: the only available env is a cloud one that can't reach a NAT'd/tailnet-only device. Pivoted: deployed ~/.local/bin/jetson-watch.sh on ubuntu-vm (34d uptime, on tailnet+LAN, holds the key) via user cron */15min -> pushes jetson_up / jetson_tailnet_up / jetson_lan_up / jetson_llm_health to the existing open-brain pushgateway -> CONFIRMED in Prometheus (jetson_up=1). Visibility live in the existing Grafana with no open-brain config edits. REMAINING: a Grafana alert rule on jetson_up==0 (or jetson_tailnet_up==0) + a contact point — delivery channel is U11, Troy's pick (no usable channel auto-discovered: Grafana has no contact points, postfix relay has no host-exposed port). -->
+**Status: PARTIAL 2026-06-30 — monitoring LIVE; alert delivery channel RESOLVED 2026-07-17 (U11 = Pushover via the existing Alertmanager); remaining work is the `jetson_up == 0` alert rule** <!-- CCR-trigger approach INFEASIBLE: the only available env is a cloud one that can't reach a NAT'd/tailnet-only device. Pivoted: deployed ~/.local/bin/jetson-watch.sh on ubuntu-vm (34d uptime, on tailnet+LAN, holds the key) via user cron */15min -> pushes jetson_up / jetson_tailnet_up / jetson_lan_up / jetson_llm_health to the existing open-brain pushgateway -> CONFIRMED in Prometheus (jetson_up=1). Visibility live in the existing Grafana with no open-brain config edits. REMAINING: a Grafana alert rule on jetson_up==0 (or jetson_tailnet_up==0) + a contact point — delivery channel is U11, Troy's pick (no usable channel auto-discovered: Grafana has no contact points, postfix relay has no host-exposed port). -->
 **Status (orig): PENDING**
 **Model Tier: sonnet**
 **Requirement Refs:** Entry 033 (2-day silent outage — the headline lesson), Entry 034 P0-1
@@ -908,7 +908,7 @@ The defining failure of Entry 033 was that nobody knew the node was down. **Auto
 | **JetPack 7.2 reflash** (kernel 6.8 — the structural NvMap-OOM fix) | Full USB reflash; needs console/physical; power-mode TNSPEC bug + CUDA-13.2 ecosystem breakage | See `JETPACK_UPGRADE_PLAN.md`; re-evaluate per JETSON_BASELINE recon triggers (7.2.x point release) |
 | **NvMap VMM allocator patch** (`GGML_CUDA_VMM_BUFFERS=1`, #23747) | Unmerged local patch = rebuild + ongoing maintenance | Fold into the next llama.cpp rebuild or the 7.2 migration |
 | **25 W vs MAXN_SUPER** re-decision | A power/throughput tradeoff decision, not autonomous | Pair with 5.5 pinned-clocks data; Troy decides |
-| **Alert notification destination** (P0-1 end-to-end) | Needs a channel/credential (push/email/ntfy/Grafana contact point) | Troy provides; completes 5.7 wiring |
+| **Alert notification destination** (P0-1 end-to-end) | ~~Needs a channel/credential~~ **RESOLVED 2026-07-17 (U11): Pushover via the existing Alertmanager** — creds already in Bitwarden, no new channel | Remaining: add the `jetson_up == 0` Prometheus rule with `severity=critical` |
 | **SSH key passphrase / fleet key hygiene** | Client-side (the `id_claude_code` key = root across the fleet) | Troy hardens key storage; out of on-box scope |
 
 <!-- END PHASES -->
@@ -961,7 +961,7 @@ The defining failure of Entry 033 was that nobody knew the node was down. **Auto
 | U8 | Does `-encrypt-state=false` actually skip the panicking fTPM probe? | High | Phase 5, Item 5.3 | Apply + hold; confirm at next fault; fallbacks ready (pin/blacklist) | Open |
 | U9 | Where does the *prod* contact-center-lab pipeline run (localhost vs a specific tailnet/LAN host)? | Medium | Phase 5, Item 5.6 (firewall allow-list) | Confirm before firewalling; add a LAN allow rule if needed | Open |
 | U10 | The 01:00 Jun 28 dual-restart trigger (needrestart ruled out — not installed) | Medium | Phase 5, Item 5.2 completeness | 5.2 mitigates the Tailscale vector regardless; re-inspect at next apt-daily run | Open |
-| U11 | Notification destination for outage alerts | High (P0-1 value) | Phase 5, Item 5.7 / Phase 6 | Troy provides channel (Grafana contact point / ntfy / push) | Open |
+| U11 | Notification destination for outage alerts | High (P0-1 value) | Phase 5, Item 5.7 / Phase 6 | **RESOLVED 2026-07-17: Pushover, via the existing observability Alertmanager.** No new channel, no Grafana contact point, no ntfy (retired fleet-wide — audit D1). `jetson_up` / `jetson_tailnet_up` already scrape into Prometheus, so this is a Prometheus alert rule (`jetson_up == 0`) with `severity=critical` → the existing `pushover-critical` receiver (prio 1, siren). Fleet channels are Pushover=act / Slack=record / email=digest. | Closed |
 | U12 | Is `nvargus-daemon`/`bluetooth` ever used (camera/BT projects)? | Low | Phase 5, Item 5.1 | Disable-not-purge; reversible | Open |
 
 ---
