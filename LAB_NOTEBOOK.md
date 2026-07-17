@@ -2989,3 +2989,71 @@ No ACTION-trigger fired and the device is HEALTHY, so nothing is urgent — but 
 - **Current Config section: unchanged** (reflects the actual running system; only Troy updates it after implementing a change).
 
 ---
+
+## Entry 036: Recon (2026-07-16) — Landscape Unchanged (4d post-035); Box Healthy; ufw Firewall Found INACTIVE (Phase 5.6 regression)
+**Date:** 2026-07-16 23:00 EDT (2026-07-17 03:00 UTC)
+**Operator:** Claude Code (jetson-recon skill, user-invoked after /prime)
+**Status:** RECON + one remediation. ufw firewall was found INACTIVE (Phase 5.6 regression) and, on user go, **re-enabled + verified** (see "Remediation APPLIED" below). JETSON_BASELINE.md tracking values updated per the proposal below (user-confirmed).
+
+Five checks (4 web-research agents + 1 live SSH health check). Prior recon: Entry 035 (2026-07-12, 4 days ago) — short-interval delta pass; web landscape expected quiet, focus was live health.
+
+#### JetPack / Firmware — **LOW (hold at 6.2.2, unchanged)**
+- No JetPack newer than 7.2 for Orin Nano; no 7.2.1/7.2.2/7.3, no CUDA bump beyond 13.2.1. Latest 3rd-party coverage (Seeed, 2026-07-09) still describes 7.2 itself.
+- **TNSPEC / 25W-MAXN-SUPER power-mode bug STILL unfixed** — NVIDIA staff reconfirm erratum **6236259** (r39.2 notes) as recently as **2026-07-15** (thread 375435); workaround unchanged (headless boot / `nvpmodel` from terminal). USB ISO also can't upgrade a non-Super board to Super Mode.
+- **sm_87 PyTorch-container gap STILL open** — NVIDIA (AastaLLL, 2026-07-06, thread 375642) calls the missing-sm_87 warning harmless (sm_80 code runs on all CC 8.x via back-compat), recommends suppressing rather than shipping an Orin-native container. "Won't fix" posture.
+- Verdict: JetPack-hold stands; nothing material since 2026-07-12.
+
+#### llama.cpp Releases — **LOW (no rebuild)**
+- Newest = **b10054** (2026-07-17). Running **b9652** = ~402 builds behind; last-seen b9982 (035) → b10054 = 72 builds in 4 days. No Jetson-specific gains in the span.
+- The only two CUDA PRs touching relevant keywords are **no-ops for us**: **#24233** (HIP/AMD-APU-only; explicitly PRESERVES the forced-`integrated=false` NVIDIA-CUDA Jetson workaround) and **#25749** (CUDA graphs for Volta/Turing SM70/75; our Ampere SM87 already had them). No new VMM/NvMap patch (#23747 still WONTFIX). No CUDA build-flag/CLI breakage — all 18 flags/args from b9652 valid through b10054.
+
+#### Small Model Landscape — **LOW (deployed stack stands)**
+- llm-stats feed: "no open source releases this week" for 07-12→07-16. No genuinely new fitting (<~3 GB Q4_K_M dense) model.
+- Rejected this pass: Gemma 4 E4B QAT (Q4_0 **5.15 GB** — too big), Gemma 4 26B-A4B MoE (26B stored — too big), new embedding models all 8–12B (Qwen3-VL-Embedding-8B, KaLM-Gemma3-12B, Llama-Embed-Nemotron-8B) → **Qwen3-Embedding-4B stays best-fitting.**
+- Qwen3.6 (27B + 35B-A3B MoE, no 4B) and Qwen3.7 (hosted-only; open 27B/35B-A3B announced-not-shipped mid-July) both confirmed **no fitting 4B-class; no Qwen4.**
+- Same-arch experiment-slot fine-tune (known, still un-trialed): **Jackrong Qwen3.5-4B-Opus-Reasoning-Distilled** (Q4_K_M **2.71 GB**) — quantified gain vs base: **+5.06 GPQA-Diamond** (33.82→38.88), **+1.79 ARC-C** (64.59→66.38). A sibling `avalon2244` distill exists but is untested / no-benchmarks — skip.
+
+#### Jetson Forum / Community — **LOW (nothing new in 4 days)**
+- No new community findings since 2026-07-12. MTP+TurboQuant fork (thread 372493, last reply 06-08, still no Orin Nano data), SENTINEL unified-memory fix (373627, 06-17), smolhub/yalexx 25W-Pareto benchmarks — all pre-window, unchanged. dusty-nv/jetson-containers: no new `llama_cpp` release.
+- Context-only (pre-window, not new): thread **370049** documents a distinct **CMA-exhaustion** failure mode (512 MB hardware CMA cap; llama.cpp ctx ~300 MB starves a co-running PyTorch's contiguous allocs) — separate from the NvMap error-12 path. Only relevant if we co-locate PyTorch with llama-server; we run single-tenant, so N/A today. Workaround noted: `sync` + `drop_caches` + `compact_memory` before reload.
+
+#### Live Health — **HEALTHY, with one security-posture finding (ufw inactive)**
+- Service `myscript` active 2w1d (since 2026-07-01 18:55 EDT); host **uptime 16 days** (boot 2026-06-30, the Entry 034 reboot). Mode `qwen35`. All 4 drop-ins intact (cma-compact, crash-escalate, memory-limits, oom-protect); full MTP cmdline present (`--spec-type draft-mtp --spec-draft-n-max 3`, draft f16 KV, `--api-key-file`). **0 failed units.**
+- **Memory HEALTHY:** idle ~**1.87 GB available**, swap ~0 (SwapFree 20.3/20.7 GB). A transient ~2.8 GB zram spike + ~9 MiB MemAvailable was **induced by THIS recon's own 200-token benchmark load** and fully reclaimed at idle; SSD swap file untouched (0 B). cgroup MemoryCurrent ~4.2–5.6 GB under MemoryMax=6400M.
+- **0 OOM since 2026-06-16 (~30 days)** — confirms the Entry 032 b9652 OOM-resolution holds (was 26 d at 035). Thermals **~50–52 °C** idle (< 75 °C). Disk 17% / 660 G free. Power mode **MAXN_SUPER (mode 2)**.
+- `tailscaled` active; **no fTPM panic this boot** (reached box over the tailnet); Entry 033 latent risk did not recur.
+- **No config/version drift:** source HEAD `6eab47181` = **b9652** (matches baseline + binary).
+- **Throughput:** smoke test 13.89 tok/s (7-tok sample, draft acc 3/9); clean 3× re-measure on 200-tok generations = **14.55 / 15.48 / 13.18 tok/s (mean ~14.4)**, draft acceptance **~41–52%**. ~6% below the 15.3 floor but **WITHIN the 15% warn band** (warn floor 13.0) and inside the MTP workload-dependent range (15–22). Per systematic-debugging: the driver is **prompt-specific low draft acceptance** (this prompt accepted ~45% vs 035's ~95–99% sample), **NOT a regression.** Auth ENFORCED and healthy: protected `/v1/chat/completions` → **401 unauth / 200 auth** (re-tested 200/200, 0.43–0.48 s); `/health` public.
+- **⚠ FINDING — ufw firewall INACTIVE (Phase 5.6 / Entry 034 regression).** `systemctl is-enabled ufw` = **enabled**, but `is-active` = **inactive**, `sudo ufw status` = **inactive**, and `nft list ruleset` is **empty** → the default-deny-inbound firewall stood up in Entry 034 (marked COMPLETE + "reboot-validated") is **NOT filtering.** The `/etc/sudoers.d/claude-ufw` grant is still present (Jun 30). It has been down for this entire 16-day boot (no reboot since 2026-06-30) → likely since ~5 min after the 034 rollout; plausible cause is an **orphaned dead-man's-switch** (`nohup 300s ufw disable`) from the 034 firewall step firing after the verification, or the enable simply not persisting. **Consequence:** the LAN firewall layer that blocked raw-LAN :8080/:8081 is gone — BUT the other two Phase 5.6 controls are intact (API-key: 401 unauth **confirmed**; SSH key-only), so the LLM endpoints are **NOT exposed unauthenticated.** Defense-in-depth loss, not an open door. **Remediation (NOT applied — recon is read-only; awaiting user go):** `sudo ufw --force enable` (claude has the grant), then re-verify raw-LAN :8080 BLOCKED / tailnet :8080 200 / SSH preserved on LAN+tailnet, exactly as Entry 034 did. Add a boot-time `ufw status active` assertion (tiny ExecStartPost or fold into the 5.7 monitor) so a silent firewall-down is alerted, not discovered a recon later.
+
+#### Cross-Correlated Findings
+1. **All four web checks LOW/stable** (JetPack hold + no llama.cpp gain + no new fitting model + no new forum technique) ⇒ zero upgrade pressure; config remains optimal. Extends Entry 035's stable read by 4 days.
+2. **NvMap/OOM mitigation status unchanged:** #23747 still WONTFIX (Check 2) + no new forum technique (Check 4) + 0 OOM/30 d on b9652 (Check 5) ⇒ `GGML_CUDA_ENABLE_UNIFIED_MEMORY` env-var remains the (still-untested) mitigation-of-record — a *preparedness* item, not a fire. Check 4 additionally surfaced a distinct CMA-exhaustion mode (thread 370049) relevant only under PyTorch co-location (N/A to our single-tenant box).
+3. **25W-mode efficiency recommendation persists** (Check 4 unchanged) and Check 5 confirms the box is still on MAXN_SUPER ⇒ standing recommendation carried, unchanged.
+
+#### Triggered Alerts
+- **jetpack** `(7.2.1 OR 7.3 OR power mode fix OR TNSPEC) AND Orin Nano` — keyword-matched (TNSPEC threads through 07-15) but substantive condition NOT met (no new version/fix) → HOLD reinforced.
+- **llamacpp_release** `SM87 OR Jetson OR Tegra OR unified memory` — matched (#24233) but confirms the Jetson CUDA path is deliberately preserved → no action.
+- **llamacpp_release** `VMM OR cuMemCreate OR NvMap` — NOT matched (no new patch); #23747 WONTFIX → **RETIRE this trigger** (carries the Entry 035 proposal forward).
+- **huggingface** `Qwen4 OR Qwen3.5 successor` — matched INFO (Qwen3.6/3.7 exist, no fitting 4B) → not actionable.
+- **forum** `llama.cpp AND (performance OR optimization) AND jetson` — matched only pre-window content → INFO, no action.
+
+#### Overall: **ACTION NEEDED — one discrete item (re-enable ufw).** Landscape otherwise NO ACTION / stable; device inference HEALTHY.
+
+#### Recommendations
+1. **Re-enable ufw (security-posture fix).** `sudo ufw --force enable`; re-verify per Entry 034 (raw-LAN :8080 blocked, tailnet :8080 200, SSH preserved). Root-cause the disable (look for a stray dead-man's-switch; check shell history / logs around 2026-06-30 14:0x) and add a boot-time `ufw status active` assertion so a silent firewall-down is alerted, not discovered a recon later. Low effort; claude has the grant.
+2. **Config remains optimal — no rebuild, no model change, no JetPack move this cycle.** (b10054 optional-only; b9974 OOM-crash guard rides along on any future opportunistic rebuild.)
+3. **Standing, low-priority (carried from 035, unchanged):** (a) evaluate `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` in the experiment slot as the NvMap/large-model enabler; (b) re-benchmark 25W (`nvpmodel -m 1`) vs MAXN_SUPER on the real MTP workload; (c) optional A/B of Jackrong Opus-distill (2.71 GB) in the free experiment slot.
+
+#### Remediation APPLIED — ufw re-enabled (2026-07-16, user go)
+Pre-flight confirmed the configured ruleset that would load == the known-good Entry 034 set (`allow in on lo`, `allow in on tailscale0`, `allow from 192.168.10.0/24 to any port 22 proto tcp`, default-deny-in); ubuntu-vm is on both the LAN (192.168.10.51) and the tailnet, and my control channel is `tailscale0` (blanket-allowed) so enabling could not cut the session. Armed a 180 s claude-user **dead-man's-switch** (`nohup sleep 180; sudo ufw --force disable`, NOPASSWD) as insurance, then `sudo ufw --force enable`. **Verified (all pass, matches Entry 034):** tailnet `:8080/health` → **200**; raw-LAN `192.168.10.58:8080/health` → **000 (BLOCKED)**; SSH preserved on **both** tailnet and LAN (from 192.168.10.51); `ufw status` = **active**, "enabled on system startup." Dead-man's-switch **cancelled** after confirming the tailnet channel alive. **OUTCOME: RESOLVED** — Phase 5.6 defense-in-depth restored. Root cause of the disable not definitively pinned (most likely an orphaned 034 dead-man's-switch that fired post-verification); **follow-up:** add a boot-time `ufw status active` assertion (ExecStartPost or the 5.7 monitor) so a silent firewall-down is alerted, not caught a recon later.
+
+#### Proposed JETSON_BASELINE.md changes (APPLIED 2026-07-16, user-confirmed)
+- `Last recon:` 2026-06-11 → **2026-07-16**; `Last healthcheck:` 2026-06-30 → **2026-07-16** (healthy; 0 OOM/30 d; no fTPM panic; **ufw found inactive**).
+- `llamacpp_latest_seen:` b9652 → **b10054** (running stays b9652).
+- `models_last_checked_date` & `forum_last_checked_date:` 2026-06-11 → **2026-07-16**.
+- **Recon Triggers:** RETIRE the `VMM OR cuMemCreate OR NvMap → #23747` row (WONTFIX); add a row tracking `GGML_CUDA_ENABLE_UNIFIED_MEMORY` as the NvMap mitigation-of-record (carries Entry 035's proposal).
+- **Watch Items:** ADD "ufw found inactive 2026-07-16 — re-enable + add boot-time assertion"; DOWNGRADE the OOM watch (0 OOM/30 d confirms b9652 fix); note b10054 latest / b9974 OOM-crash guard; carry 25W + `GGML_CUDA_ENABLE_UNIFIED_MEMORY` + Jackrong distill.
+- **Current Config section: unchanged.**
+
+---

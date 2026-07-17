@@ -1,3 +1,5 @@
 .env
 *.log
 GITHUB_ERRORS.md
+.DS_Store
+._*

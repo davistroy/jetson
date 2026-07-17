@@ -1,8 +1,8 @@
 # Jetson Performance Baseline
 
-Last updated: 2026-06-30
-Last recon: 2026-06-11
-Last healthcheck: 2026-06-30 (Entry 033 — 2-day tailnet outage from a tailscaled fTPM panic; resolved by reboot, box was healthy throughout)
+Last updated: 2026-07-16
+Last recon: 2026-07-16
+Last healthcheck: 2026-07-16 (Entry 036 — HEALTHY: 0 OOM/30d, no fTPM panic; ufw firewall found inactive → re-enabled + verified. Prior: Entry 033 fTPM tailnet outage, reboot-resolved)
 
 ## Current Config
 | Field | Value |
@@ -26,7 +26,7 @@ Last healthcheck: 2026-06-30 (Entry 033 — 2-day tailnet outage from a tailscal
 ## Version Tracking
 | Field | Value |
 |-------|-------|
-| llamacpp_latest_seen | b9652 |
+| llamacpp_latest_seen | b10054 (2026-07-17; running stays b9652) |
 | jetpack_latest_orin_nano | 7.2 (L4T r39.2, released 2026-06-01) |
 | jetpack_next_expected | n/a — 7.2 shipped; watch for 7.2.x point release fixing power-mode TNSPEC bug |
 
@@ -35,23 +35,28 @@ Last healthcheck: 2026-06-30 (Entry 033 — 2-day tailnet outage from a tailscal
 |-------|-------|
 | current_model | Qwen3.5-4B-MTP-Q4_K_M (MTP speculative decoding) |
 | current_embedding_model | Qwen3-Embedding-4B-Q4_K_M |
-| models_last_checked_date | 2026-06-11 |
+| models_last_checked_date | 2026-07-16 |
 
 ## Forum Tracking
 | Field | Value |
 |-------|-------|
-| forum_last_checked_date | 2026-06-11 |
+| forum_last_checked_date | 2026-07-16 |
 
 ## Recon Triggers
 | Source | Pattern | Action | Added |
 |--------|---------|--------|-------|
 | jetpack | (JetPack 7.2.1 OR 7.3 OR power mode fix OR TNSPEC) AND (Orin Nano OR Orin) | ACTION: JP7.2 ecosystem maturing — re-evaluate reflash window (Entry 026: wait 2–4 weeks from 2026-06-11) | 2026-06-11 |
 | llamacpp_release | SM87 OR Jetson OR Tegra OR unified memory | ACTION: Check release notes for Jetson-specific improvements | 2026-04-13 |
-| llamacpp_release | VMM OR cuMemCreate OR NvMap | ACTION: NvMap VMM allocator patch (#23747) resubmitted — evaluate local application for the OOM root cause | 2026-06-11 |
+| llamacpp_release | GGML_CUDA_ENABLE_UNIFIED_MEMORY OR (NvMap AND mitigation) | INFO: env-var/build-flag NvMap mitigation-of-record (forum thread 373627) — evaluate in experiment slot as OOM-guard/large-model enabler. (Retired the #23747 VMM trigger — CLOSED WONTFIX 2026-05-27.) | 2026-07-16 |
 | huggingface | Qwen4 OR Qwen3.5 successor | INFO: New Qwen generation may improve quality at same size | 2026-04-13 |
 | forum | llama.cpp AND (performance OR optimization) AND jetson | INFO: Community optimization techniques to evaluate | 2026-04-13 |
 
 ## Watch Items
+- 🔒 **ufw firewall — re-enabled 2026-07-16 (Entry 036), had been found INACTIVE.** The Phase 5.6 default-deny firewall (Entry 034) silently went down at some point on the 2026-06-30 boot (empty nft ruleset; `is-enabled`=enabled but `is-active`=inactive) — API-key + key-only-SSH kept the LLM unexposed throughout. Re-enabled + verified (raw-LAN :8080 blocked, tailnet :8080 200, SSH both paths). **TODO:** add a boot-time `ufw status active` assertion (ExecStartPost or fold into the 5.7 monitor) so a silent firewall-down alerts instead of surfacing a recon later. Likely root cause: orphaned Entry-034 dead-man's-switch.
+- ✅ **OOM watch — DOWNGRADE (Entry 036, 2026-07-16):** 0 OOM in ~30 days on b9652 confirms the Entry 032 resolution holds; the NvMap kernel-accounting gap is unchanged (still kernel 5.15) but is NOT an active fire. `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` (env var / build flag, forum thread 373627) is the mitigation-of-record replacing the dead #23747 — still UNTESTED here; trial in the experiment slot as the OOM-guard / larger-model enabler. Re-confirm each recon: `journalctl -u myscript --since '<date>' | grep -iE 'oom|killed'` should stay empty.
+- 📦 **llama.cpp b10054 latest seen (2026-07-16, Entry 036); running b9652 (~402 behind), no Jetson-specific gain in the span.** Only bundle-worthy item on a future opportunistic rebuild: b9974 `cudaMemGetInfo` OOM-crash guard. No flag/CLI breakage through b10054.
+- ⚡ **25W power mode (`nvpmodel -m 1`) — standing efficiency recommendation; box still on MAXN_SUPER (Entry 036 confirms).** Re-benchmark 25W vs MAXN on the real Qwen3.5-4B-MTP workload before committing (note the JP-side reboot-on-mode-change — N/A on JP6.2.2 but relevant if we ever move to 7.2).
+- 🧪 **Jackrong Qwen3.5-4B-Opus-Reasoning-Distilled (Q4_K_M 2.71 GB) — experiment-slot A/B candidate (Entry 036), same arch, zero memory risk, still un-trialed.** Quantified vs base: +5.06 GPQA-Diamond (33.82→38.88), +1.79 ARC-C (64.59→66.38); the v2 variant additionally reports −34% thinking length. Skip the untested `avalon2244` sibling.
 - ⚠️ **Tailscale fTPM panic — LATENT (Entry 033, 2026-06-30):** `tailscaled` 1.98.4 panics at startup on OP-TEE fTPM errors (`send(): error -53212` → `slice bounds out of range [:-53212]`) and crash-loops, dropping the tailnet link while the host stays up. Hit it 2026-06-28 01:00 → node "offline" 2 days; **reboot cleared the fTPM state** (0 fTPM errors post-boot) and restored a direct tailnet path. **Root cause not eliminated** — a future fTPM hiccup re-triggers it. Durable fix if it recurs: pin/downgrade tailscale, or disable tailscale TPM state-sealing via a systemd drop-in. **Unexplained:** both `tailscaled` and `myscript` restarted at the same 01:00 minute with no reboot/no apt — investigate the 01:00 trigger at next touch. Diagnostics: reach the box on LAN `192.168.10.58`, check `journalctl -u tailscaled` for the panic and `journalctl -k | grep tpm`.
 - ✅ **PHASE 1–3 COMPLETE (Entries 028–032, 2026-06-12→16) — box hardened + accelerated.** Live config now: de-throttled cgroup (MemoryHigh removed, MemoryMax=6400M, OOMScoreAdjust=−900); armed **memory-watchdog** (root, file-swap-triggered, reboot-durable); CMA pre-start defrag; MAXN_SUPER; `--mlock` removed; **llama.cpp b9652**; **Qwen3.5-4B-MTP self-speculative decoding** as the default qwen35 mode (+8–47% workload-dependent, lossless). Rollback assets on device: `~/llm-server/backups/{envelope-2026-06-11, scripts-mlock-2026-06-15, qwen35-pre-mtp-2026-06-16}/` and `~/llm-server/backup-b8987-bin/` (delete b8987 bin ~2026-06-29 if stable). **MTP caveat:** recurrent-memory "full prompt re-processing" churn limits cache reuse on long multi-turn (watch if multi-turn latency matters); revert = restore `qwen35-pre-mtp-2026-06-16/`. Experiment slot free.
 - ✅ **CHRONIC OOM/degradation — LIKELY RESOLVED by b9652 (Entry 032):** the ~28h MTP soak held ~800 MB available steadily with file-swap=0, vs the old b8987 crawl to ~0 + 3 GB zram (Entry 028). b9652's deterministic startup KV reservation (#23907) appears to be the fix. Watchdog + MemoryMax remain the backstop. **Supersedes the OOM item below — re-confirm at next recon (`journalctl -u myscript --since '2026-06-15' | grep -iE 'oom|killed'` should stay empty); NvMap accounting itself is unchanged (still kernel 5.15) so JetPack 7.2 kernel 6.8 remains the structural fix.**
