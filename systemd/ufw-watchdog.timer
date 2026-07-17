@@ -1,0 +1,16 @@
+# /etc/systemd/system/ufw-watchdog.timer
+# Runs ufw-watchdog at boot (+2min) and every 2 minutes thereafter, so a RUNTIME ufw-disable
+# (the Entry 036 failure mode) is caught within ~2 min instead of at the next recon.
+# LAB_NOTEBOOK Entry 037 (2026-07-16).
+[Unit]
+Description=Run the ufw firewall assertion watchdog at boot and every 2 minutes
+Documentation=file:/home/claude/llm-server/ufw-watchdog.sh
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

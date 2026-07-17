@@ -3057,3 +3057,29 @@ Pre-flight confirmed the configured ruleset that would load == the known-good En
 - **Current Config section: unchanged.**
 
 ---
+
+## Entry 037: ufw Firewall Watchdog — Boot + Runtime Assertion with Alert & Self-Heal (2026-07-16)
+**Date:** 2026-07-16 23:35 EDT (2026-07-17 03:35 UTC)
+**Operator:** Claude Code (user request, follow-up to Entry 036)
+**Status:** IMPLEMENTED + induced-fire-tested + reboot-durable. Closes the Entry 036 gap (a runtime ufw-disable went unnoticed until a recon).
+
+#### Driver
+Entry 036 found ufw INACTIVE on a 16-day-uptime boot: the firewall came up fine at boot (`ufw.service`) and was disabled at **runtime** (~5 min later, likely an orphaned Entry-034 dead-man's-switch). `ufw.service` only asserts at boot ⇒ a runtime disable is invisible until the next recon. User asked for a boot-time assertion that alerts in real time; the actual failure mode requires **both** boot and periodic runtime checks, so this is a timer-driven watchdog — and (user's call) it **self-heals as well as alerts**, mirroring `memory-watchdog` (Entry 028), which acts rather than just observes.
+
+#### What was built (source now tracked in repo `systemd/`)
+- **`ufw-watchdog.sh`** (root; installed at `/home/claude/llm-server/ufw-watchdog.sh`, 0755): reads `ufw status`; writes a node_exporter textfile metric to `/var/lib/prometheus/node-exporter/ufw.prom` (`jetson_ufw_active` 0|1, `jetson_ufw_watchdog_last_run_seconds`, `jetson_ufw_watchdog_heals_total`) — the Debian `prometheus-node-exporter` **default** textfile dir, so it is auto-scraped the moment Phase 5.7 installs node_exporter (OBSERVABILITY.md pull path). On INACTIVE: (a) **MAINTENANCE** flag (`~/llm-server/MAINTENANCE`) ⇒ no action; (b) within **600 s COOLDOWN** of the last heal ⇒ **ESCALATE** (louder CRITICAL, exit 1, do NOT re-enable — don't fight a persistent disabler); (c) else ⇒ CRITICAL log + `ufw --force enable` (rules known-good; enabling over `tailscale0` can't lock out admin) + record the heal. Healthy runs are quiet (metric only; the timer journal proves liveness); the heartbeat CSV (`~/llm-server/watchdog/ufw-heartbeat.csv`) records only anomalies/actions.
+- **`ufw-watchdog.service`** — Type=oneshot, User=root, After/Wants=`ufw.service`.
+- **`ufw-watchdog.timer`** — `OnBootSec=2min` + `OnUnitActiveSec=2min`, enabled → `timers.target`: checks at boot AND every 2 min, so a runtime disable is caught within ~2 min.
+
+#### Verification (induced-fire; timer stopped during tests to avoid races)
+- **Heal:** disable → run → CRITICAL "re-enabling" → "re-enabled OK (heal #1)" → active; metric 0→1; **raw-LAN :8080 BLOCKED / tailnet :8080 200** re-confirmed from the LAN+tailnet VM. ✓
+- **Cooldown escalation:** disable again 2 s after a heal → "ufw INACTIVE AGAIN 2s after a heal (<600s) … MANUAL INTERVENTION REQUIRED", no re-enable, service exits non-zero (**a failed unit is itself an alertable signal**). ✓
+- **MAINTENANCE bypass:** flag set + disable → "taking no action", stays down. ✓
+- **Post-test:** test state reset (heals_total→0), timer re-armed (active, 2-min cadence), **0 failed units**, service last result=success, ufw active, enforcement intact (LAN :8080 000 / tailnet 200).
+
+#### Follow-ups / notes
+- Watchdog script + units are now in the repo (`systemd/`), fixing the source-of-truth gap the Prime report flagged. **`memory-watchdog.sh` + its unit are still on-box only** — back-fill into `systemd/` next touch for parity.
+- The metric is written but **not yet scraped** (node_exporter not installed). When Phase 5.7 lands: `apt-get install prometheus-node-exporter` picks up `ufw.prom` with zero config; add an Alertmanager rule `jetson_ufw_active == 0` (and/or a failed-unit alert on `ufw-watchdog.service`) to the existing Grafana/Prometheus stack.
+- Root cause of the original disable never definitively pinned (most likely the orphaned 034 dead-man's-switch, a one-off). The watchdog makes recurrence **self-correcting + loud** regardless of cause.
+
+---

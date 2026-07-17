@@ -1,0 +1,14 @@
+# /etc/systemd/system/ufw-watchdog.service
+# Assert the ufw firewall is active; alert + self-heal on a silent runtime down.
+# LAB_NOTEBOOK Entry 037 (2026-07-16). Triggered by ufw-watchdog.timer — do not enable directly.
+[Unit]
+Description=ufw firewall assertion watchdog (detect + heal a silent ufw-down; LAB_NOTEBOOK Entry 037)
+Documentation=file:/home/claude/llm-server/ufw-watchdog.sh
+After=ufw.service network.target
+Wants=ufw.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/claude/llm-server/ufw-watchdog.sh
+User=root
+Nice=10
