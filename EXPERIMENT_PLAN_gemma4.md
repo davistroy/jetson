@@ -81,12 +81,12 @@ Two NVIDIA forum threads document Gemma experiences on Orin Nano Super:
 
 | Issue | Problem | Status |
 |-------|---------|--------|
-| [#21365](https://github.com/ggml-org/llama.cpp/issues/21365) | Infinite repetition in llama-server | **FIXED** by PR #21418 (b8721+); issue still formally open |
+| [#21365](https://github.com/ggml-org/llama.cpp/issues/21365) | Infinite repetition in llama-server | **FIXED** by PR #21418 (b8721+); issue now formally **CLOSED** (stale, 2026-07-23) |
 | [#21329](https://github.com/ggml-org/llama.cpp/issues/21329) | `--parallel` crashes with Gemma 4 | **CLOSED** — we run single-slot anyway |
 | [#21375](https://github.com/ggml-org/llama.cpp/issues/21375) | Infinite loop in tool-call parser | **CLOSED** (not planned, 2026-05-29); PR [#21760](https://github.com/ggml-org/llama.cpp/pull/21760) (merged 2026-04-13) had addressed main edge cases |
 | [#21321](https://github.com/ggml-org/llama.cpp/issues/21321) | Generates `<unused24>` tokens | **CLOSED** |
 
-**Action:** Proceed to P2. Target build b9401 or later (latest as of 2026-05-29).
+**Action:** Proceed to P2. Target build b10092 or later (latest as of 2026-07-23).
 
 ### P2: Rebuild llama.cpp
 
