@@ -571,7 +571,7 @@ Prerequisites before any testing: rebuild llama.cpp (need b8641+ for Gemma 4 arc
 
 ### Status
 
-**UNBLOCKED** (2026-04-09) — PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) merged 2026-04-04, fixing the llama-server infinite repetition bug. Fix first included in build b8721 (2026-04-09). Additional parser edge-case fixes in PR [#21760](https://github.com/ggml-org/llama.cpp/pull/21760) (merged 2026-04-13). Issue #21365 formally closed as stale on GitHub (2026-07-23). Issue #21375 (tool-call parser loop) closed as not planned 2026-05-29. Latest release as of 2026-08-07: **b10299** (2026-08-07). Next step: proceed to P2 (rebuild llama.cpp to b10299+), then P3 regression test, then P4 model downloads.
+**UNBLOCKED** (2026-04-09) — PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) merged 2026-04-04, fixing the llama-server infinite repetition bug. Fix first included in build b8721 (2026-04-09). Additional parser edge-case fixes in PR [#21760](https://github.com/ggml-org/llama.cpp/pull/21760) (merged 2026-04-13). Issue #21365 formally closed as stale on GitHub (2026-07-23). Issue #21375 (tool-call parser loop) closed as not planned 2026-05-29. Latest release as of 2026-08-08: **b10327** (2026-08-08; CUDA fix: thread/block count in quantized cpy kernel). Next step: proceed to P2 (rebuild llama.cpp to b10327+), then P3 regression test, then P4 model downloads.
 
 ### Decision
 
