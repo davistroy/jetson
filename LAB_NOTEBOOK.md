@@ -571,7 +571,7 @@ Prerequisites before any testing: rebuild llama.cpp (need b8641+ for Gemma 4 arc
 
 ### Status
 
-**UNBLOCKED** (2026-04-09) — PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) merged 2026-04-04, fixing the llama-server infinite repetition bug. Fix first included in build b8721 (2026-04-09). Additional parser edge-case fixes in PR [#21760](https://github.com/ggml-org/llama.cpp/pull/21760) (merged 2026-04-13). Issue #21365 formally closed as stale on GitHub (2026-07-23). Issue #21375 (tool-call parser loop) closed as not planned 2026-05-29. Latest release as of 2026-08-12: **b10369** (2026-08-12; mtmd: support pocket-tts). Next step: proceed to P2 (rebuild llama.cpp to b10369+), then P3 regression test, then P4 model downloads.
+**UNBLOCKED** (2026-04-09) — PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) merged 2026-04-04, fixing the llama-server infinite repetition bug. Fix first included in build b8721 (2026-04-09). Additional parser edge-case fixes in PR [#21760](https://github.com/ggml-org/llama.cpp/pull/21760) (merged 2026-04-13). Issue #21365 formally closed as stale on GitHub (2026-07-23). Issue #21375 (tool-call parser loop) closed as not planned 2026-05-29. Latest release as of 2026-08-13: **b10405** (2026-08-13; HIP: remove -funsafe-math-optimizations for IEEE-conformant builds). Next step: proceed to P2 (rebuild llama.cpp to b10405+), then P3 regression test, then P4 model downloads.
 
 ### Decision
 
