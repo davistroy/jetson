@@ -4002,3 +4002,130 @@ Driven by: live health **DEGRADED** — throughput **15.4% below floor** for a s
 - **Fleet note (not this box, carried from Entries 040/041, still open):** NVIDIA security bulletin 5867 requires **DGX Spark UEFI 1.110.12 → 1.110.13**. Raise on `spark.k4jda.net` — ⚠ note `spark` shows **offline, last seen 38 d ago** on the tailnet.
 
 ---
+
+## Entry 043: Recon (2026-10-03) — ACTION NEEDED: 27 more OOM kills in 21 days (cumulative 69), one 25-token request now drives MemAvailable to 0 kB, the box lives in 2.6 GB of zram, and the P0 fix is unapplied for a fifth recon
+**Date:** 2026-10-03 14:06 EDT (2026-10-03 18:06 UTC)
+**Operator:** Claude Code (jetson-recon skill, headless scheduled run — no user present)
+**Status:** RECON — **no changes made to the Jetson.** All device access read-only. Baseline tracking values NOT updated (headless run; proposal recorded below for user confirmation).
+
+Five checks (4 web-research agents + 1 live SSH health check, run after the web checks per the skill's trust boundary). Prior recon: Entry 042 (2026-09-12, 21 days ago — the 09-19 and 09-26 recons did not run; only the Gemma 4 build-target bookkeeping commits landed in that gap).
+
+**Headline — four things moved:**
+1. **27 OOM restarts in 21 days.** `NRestarts` 6 (Entry 042) → **33**; no reboot since 2026-09-07 20:18:50 (`uptime -s` unchanged, uptime 25 d 17 h), so the counter is continuous. **Cumulative OOM count (LAB_NOTEBOOK-only) = 42 + 27 = 69.** The 05:00 window is killing again (09-27, 09-30) after a 05:00-free cycle at Entry 042.
+2. **Memory is worse at rest than Entry 042 was after three requests.** Pre-test `MemAvailable` **84.6 MB** (13 h after a restart); after **one** 25-token request it read **0 kB**, and `MemoryCurrent` rose **+211 MB** (4361 → 4573 MB). **zram now holds ~2.69 GB** (6 × 434–461 MB) vs ~140 MB at Entry 042 — the box has been pushed into compressed swap. The swap file still reads **0 B**, so the memory-watchdog's `fswap > 1024 MB` AND-gate remains unsatisfiable while `MemAvailable` sits at zero.
+3. **The `--cache-ram` case gained a qwen35-specific data point.** llama.cpp #29324 reports hybrid **qwen35** models grow ~640 MiB per prompt under the prompt cache, and #29509 (open) shows the **MTP draft KV is serialized whole into every context checkpoint** — a direct mechanism for MTP + checkpoint growth on exactly our config.
+4. **First same-arch, MTP-preserving fine-tune from a major lab:** `microsoft/FrogNano-4B-2609` (RL post-train of Qwen3.5-4B, `qwen35` GGUF with `nextn` MTP tensors verified, Q4_K_M 2.80 GB, MIT/Apache). Coding-agent specialist; memory-neutral — **not a memory fix.**
+
+---
+
+#### JetPack / Firmware — **LOW (no version movement)**
+- No new JetPack or L4T. Newest remain **7.2.1 / L4T 39.2.1** and **6.2.3 / L4T 36.5.2**; no 6.2.4 / 7.2.2 / 7.3. [JetPack Archive](https://developer.nvidia.com/embedded/jetpack-archive), [Jetson Linux Archive](https://developer.nvidia.com/embedded/jetson-linux-archive).
+- 6.2.3 announcement thread [379873](https://forums.developer.nvidia.com/t/379873) pinned + closed by moderators 2026-09-29, still zero replies; no regression reports found. Still no NvMap/CMA content — currency/security only, zero OOM benefit.
+- No new Jetson security bulletin; 0 Jetson CVEs published in 2026 (stack.watch).
+- JP7 Orin Nano power-mode defect still unfixed: NVIDIA attributes [375435](https://forums.developer.nvidia.com/t/375435) to r39.2 known issue **6236259** (sub-Fmax EMC power mode at boot can fail reboot, worse with display; workaround headless boot; no fix date). [377003](https://forums.developer.nvidia.com/t/377003) (ISO image omits Super mode, GPU stuck 624 MHz) — NVIDIA said "fixed in jp7.2.1", reflash via sdkmanager; ISO-path only. [381430](https://forums.developer.nvidia.com/t/381430) (08-27): another Orin Nano user regained Super mode only by returning to JP6.2. **JP7 hold stands.**
+
+#### llama.cpp Releases — **HIGH (blocker now `stale`-labeled; small extra SM87 payoff confirmed; no breaking change hits us)**
+- **Latest `b11379`** (2026-10-03 15:51Z). Running **b9652** — now **~1,727 builds behind**; +448 since Entry 042's b10931. Version tags 0.4.1 (#28900, 09-14) and 0.5.0 (#29333, 09-23).
+- **🔴 Rebuild blocker [#27282](https://github.com/ggml-org/llama.cpp/issues/27282) labeled `stale` by the bot 2026-09-25**, no maintainer activity — **risk it auto-closes unfixed.** Fix PR [#27489](https://github.com/ggml-org/llama.cpp/pull/27489) still dirty, last touched 08-21; testers reported aborts on prompts longer than ctx. **Blocker stands.**
+- **🟠 [#28549](https://github.com/ggml-org/llama.cpp/pull/28549) (merged 09-16) "Enable CUDA graph for MTP draft" adds a second graph-result arena for MTP no-output batches** — pushes the post-rebuild MTP footprint the wrong way on top of #27282. Measure after any rebuild.
+- **✅ #26705 gating resolved (Entry 042 rec #9 bullet):** the branchless Q4_K/Q5_K unpack in `vecdotq.cuh` is **unconditional** → SM87 inherits it on rebuild. Only the L2 prefetch is gated, by a literal `#if __CUDA_ARCH__ == GGML_CUDA_CC_DGX_SPARK`. Small extra rebuild payoff for our Q4_K_M.
+- **[#27311](https://github.com/ggml-org/llama.cpp/pull/27311) (UMA scheduler) PARKED** — ggerganov 09-16: "not ready for review… supporting `prop.integrated` is very low priority". Successor [#29450](https://github.com/ggml-org/llama.cpp/pull/29450) (AMD, minimal version, open 09-26). Downgrade from "most consequential open item" to watch.
+- **Watch (open):** [#29509](https://github.com/ggml-org/llama.cpp/pull/29509) "server: don't store the draft KV in context checkpoints" (draft KV ignores `PARTIAL_ONLY`, so every checkpoint serializes the full draft KV); [#27451](https://github.com/ggml-org/llama.cpp/pull/27451) prompt-cache OOM hardening; [#29324](https://github.com/ggml-org/llama.cpp/issues/29324) `--cache-ram -1` is not unlimited, hybrid qwen35 grows ~640 MiB/prompt.
+- **MEDIUM merged:** #29152 (Ampere+ FA tuning at head size 256/512 — not our head size), #26289 (FA fp16 tiles hd 40–112), #27530 (K/V + recurrent cleanup after failed restore), #29638/#29019 (spec/MTP correctness), #26070/#28149 (graceful failure on graph-buffer reservation under memory pressure), #27694 (`--spec-draft-sampling`, default greedy). LOW: #29818 (optional `cls_out` in `qwen35.cpp`), #28849 merged then reverted by #29437.
+- **Breaking changes since 09-12 — none hit us:** `GGML_CUDA_CUB_3DOT2` → `GGML_CUDA_CCCL_VERSION` (#29792; unused here); `--host` accepts a list (#28690, compatible); `string_split` throws on malformed list args (#29518); new sampling `LLAMA_ARG_*` (#27380); `llama_batch_ext` API migration; **prebuilt arm64 CUDA binaries are now CUDA 13.x** (#28186/#29202) — still must build from source on JP6. `GGML_CUDA_FA_QUANTS` (#28079) remains the rebuild hazard.
+- Method: authenticated `gh` API, no rate limiting.
+
+#### Small Model Landscape — **MEDIUM (one memory-neutral same-arch candidate; Qwen 4 named, no small model)**
+- **🔵 `microsoft/FrogNano-4B-2609`** — uploaded 09-17 (card release date 09-22); [bartowski GGUF](https://huggingface.co/bartowski/FrogNano-4B-2609-GGUF) 10-02. RL-only post-train of Qwen3.5-4B. `config.json`: `qwen3_5`, `mtp_num_hidden_layers: 1`; GGUF header range-fetched: `general.architecture=qwen35`, `qwen35.nextn_predict_layers`, `blk.32.nextn.*` present → **MTP head survives; b9652 should load it unmodified (untested).** Q4_K_M 2.80 GB / Q4_K_S 2.62 / IQ4_XS 2.51. 262K native ctx. License tag MIT vs card text Apache-2.0 (both permissive). Vendor: SWE-bench Verified 39.4 → 61.5 (Avg@3); SWE-bench Pro 37.6, Terminal-Bench 2.0 31.1. **No general chat/math/multilingual evals; Microsoft says it is not a general assistant.** ⚠ RL likely did not retrain the MTP head → draft acceptance may drop; measure it.
+- **Qwen 4 named at Apsara 2026-09-22** (Max/Plus/Flash + a 27B open-weights model; no small models, no date). Qwen HF org: only Qwen-Image-2.1 uploads since 08-27.
+- **MiniCPM5-2B:** community Q8_0 DSpark drafter now exists ([adriandj3/MiniCPM5-2B-DSpark-FRSpec32k-GGUF](https://huggingface.co/adriandj3/MiniCPM5-2B-DSpark-FRSpec32k-GGUF), 0.39 GB, `dflash` arch, 32k trimmed vocab) — still rebuild-gated. No independent benchmarks or edge tok/s yet.
+- Rejected: Kev-4B and vllm-sr/Decision-2.0 (classifiers, not chat); IBM granite-4.2-3b (pre-window, MLX-only official, community GGUFs only).
+- **Embedding: no change — stay on Qwen3-Embedding-4B.** JevEmbed / Desearch-Embedding-4B are task fine-tunes of ours; `Rebine/Qwen3.5-Embedding-0.8B-Memory-GGUF` is a domain specialist below the 0.6B general baseline out of domain.
+
+#### Jetson Forum / Community — **INFO (nothing actionable on the forum; 380334 attribution settled)**
+- **380334 data-integrity question RESOLVED (Entry 042 rec #20).** Both renderings are real, from different posts: **AastaLLL's accepted answer (08-17) gives env vars** — *"pass `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1 LLAMA_ARG_FIT=off` configuration"* (contiguous-buffer rationale, links 370049). **The CLI flags `--fit off --ctx-size <explicit> --cache-ram 0` are the OP's (manuel58, 08-16) own fix**, "eliminated the failures entirely across 60+ consecutive requests". ⚠ That thread is **JP7.2/7.2.1 + CUDA 13 container**, not JP6.2.2. Attribute accordingly; 380334 can now be dropped.
+- [384062](https://forums.developer.nvidia.com/t/384062) (09-23→09-30) INFO: Orin Nano Super over-current throttling under LLM load is normal per AastaLLL; GPU ~1019 → 1003 MHz — negligible.
+- SKIP: 383350 (Ollama on JP7.2.1), 383399 (custom-board nvgpu hang), 383584, 383799 (RMA).
+- GitHub: [#28056](https://github.com/ggml-org/llama.cpp/issues/28056) cross-request KV contamination on the CUDA integrated-GPU path (repro incl. Qwen3.5-4B `--parallel 1 --cache-ram 0`) — **image requests only**; we are text-only → watch, fix PR #28058 open. [#29142](https://github.com/ggml-org/llama.cpp/issues/29142) hardcoded 32 GB VMM pool fails on AGX Orin JP6/CUDA 12.6 (multimodal path; workaround `-DGGML_CUDA_NO_VMM=ON`). [#29499](https://github.com/ggml-org/llama.cpp/issues/29499) intermittent post-"listening" hang on Orin NX at b11199 with our exact build flags (non-reproducible now) — **add to rebuild checklist.** [#25953](https://github.com/ggml-org/llama.cpp/issues/25953) 09-02 comment: linear ~3.3 MB/generated-token RSS growth on ROCm unrelated to the prompt cache — a candidate for whatever `--cache-ram 0` does not cover.
+- TensorRT-Edge-LLM **v0.11.0** (09-29): still Orin-on-JP7.2/CUDA 13.2 only. dusty-nv/jetson-containers: no commits. Both stay retired.
+
+#### Live Health — **DEGRADED**
+| Item | Value | vs Entry 042 / threshold |
+|---|---|---|
+| `myscript` | active, PID 893010, started **2026-10-03 01:01:14** (post-OOM restart) | — |
+| `uptime -s` | **2026-09-07 20:18:50** (25 d 17 h) | unchanged — no new reboot |
+| `NRestarts` | **33** | 6 → 33 = **+27 in 21 d** |
+| OOM kills visible in journal (09-27 → 10-03) | 09-27 01:01 & **05:09**, 09-28 01:03, 09-29 01:01, 09-30 01:04 & **05:05**, 10-02 01:00, 10-03 01:01 — all `Failed with result 'oom-kill'` | 8 in 7 d; 10-01 the only kill-free day; journal before 09-27 rotated |
+| `MemAvailable` pre / post 1 request | **84.6 MB → 0 kB** | 500 MB warn — ❌ |
+| `MemoryCurrent` pre / post | 4361 → **4573 MB (+211 MB for a 25-token request)** | headroom to 6400 MiB cgroup ≈ 1.8 GB — kills are **global**, not cgroup |
+| `free -h` | used 6.7 Gi / 7.4 Gi; buff/cache 272 Mi | — |
+| swap | file **0 B**; zram **~2.69 GB** (6 × 434–461 MB) | was ~140 MB zram ❌ |
+| `llama-server` RSS | 4.45 GB (next: tailscaled 31 MB) | ~2 GB of "used" not in any RSS → NvMap-invisible signature (Entry 026) |
+| Inference (32-token test) | "Hello there, friend." — **16.8 tok/s** gen (6 tokens), **59.8 tok/s** prompt (19 tokens), draft 3/6 accepted | sample too short to judge vs 15.3 floor; prompt eval far below 166 |
+| Mode / build | `qwen35` / **b9652 `6eab47181`** | no drift |
+| Live flags | `--ctx-size 32768 … --spec-type draft-mtp --spec-draft-n-max 3` — **no `--cache-ram`, `--fit`, `--no-cache-idle-slots`, no `MALLOC_ARENA_MAX`** (grep of start script + unit + drop-ins: rc=1) | **P0 fix unapplied — fifth recon** |
+| Disk | 17% (131 G / 824 G) | OK |
+| Thermals | 49.9 / 50.2 / 51.3 / 51.5 / 52.2 / 52.2 °C | far below 75 °C |
+| Slots / `/health` | 1 / `{"status":"ok"}` | OK |
+| Other units | `memory-watchdog`, `tailscaled`, `ufw-watchdog.timer` active; 5 failed units (expected set) | tailscaled stayed up |
+
+Reading: at Entry 042 the box was 21 MB from the cgroup wall after three requests. Now the cgroup has ~1.8 GB of headroom but the **system** has none — `MemAvailable` 0 with ~2 GB "used" outside any process RSS and 2.6 GB pushed into zram. The OOM kills stay global (`CONSTRAINT_NONE`, per Entry 042's dump), so the cgroup limit is irrelevant to them. The memory-watchdog cannot fire: `MemAvailable` is 0 (floor 150 MB) but the swap file is at 0 B.
+
+#### Cross-Correlated Findings
+1. **`--cache-ram 0` now has a qwen35-specific mechanism, on top of the #22629 source analysis.** Check 2's #29324 (hybrid qwen35 ~640 MiB/prompt) + Check 4's #27725 (Orin Nano 8 GB leak fixed by `--cache-ram 0/1024`) + Check 5's +211 MB for a 25-token request. Three sources, our exact arch, our exact board class. Still unapplied.
+2. **MTP is the likely second lever.** Check 2's #29509 (draft KV serialized whole into every checkpoint) + Entry 042 Finding 6 (32 checkpoints × ~50 MiB) + #23446 (slower growth with MTP off). The MTP-on/off A/B (Entry 042 rec #8) now has a named mechanism.
+3. **The rebuild is drifting further away.** #27282 stale-labeled, #27311 parked, and #28549 adds MTP arena memory. Meanwhile prebuilt arm64 CUDA moved to CUDA 13 and JP7 is still blocked by the power-mode defect. **Treat b9652 as the long-term runtime; fix memory with flags, not a rebuild.**
+4. **380334 settled + this box's evidence → two distinct mitigations, not one.** The NVIDIA-endorsed env-var pair (`GGML_CUDA_ENABLE_UNIFIED_MEMORY=1`, `LLAMA_ARG_FIT=off`) addresses contiguous-buffer allocation failure; the OP's CLI set (`--cache-ram 0`, `--fit off`) addresses growth. Both originate on JP7; apply the growth fix first and the env-var pair separately so effects stay measurable.
+5. **FrogNano is memory-neutral** (2.80 vs 2.83 GB) — it does not help the P0 problem and, like every throughput experiment, would be noise until memory is stable (Entry 042 Finding 4).
+
+#### Triggered Alerts
+| Trigger | Source | Verdict |
+|---|---|---|
+| `(JetPack 7.2.1 OR 7.3 OR power mode fix OR TNSPEC) AND (Orin Nano OR Orin)` | jetpack | MATCHED literally on pre-existing 7.2.1 pages — **not actionable** (third consecutive) |
+| `SM87 OR Jetson OR Tegra OR unified memory` | llamacpp_release | **MATCHED (ACTION), issues only** — #29142 (AGX Orin sm_87 VMM pool), #29499 (Orin NX hang, our build flags), #27725. No merged PR names SM87 |
+| `GGML_CUDA_ENABLE_UNIFIED_MEMORY OR (NvMap AND mitigation)` | llamacpp_release | MATCHED weakly (INFO) — env var mentioned in #29499 (hangs both set and unset) and #27918. No NvMap mitigation |
+| `Qwen4 OR Qwen3.5 successor` | huggingface | **MATCHED (INFO)** — Qwen 4 named 09-22; only Max/Plus/Flash + 27B; no small model |
+| `llama.cpp AND (performance OR optimization) AND jetson` | forum | NOT MATCHED |
+| *Proposed (Entries 041/042, not yet in table):* `#27282 OR (MTP AND compute arena)` | llamacpp_release | MATCHED — stale label + #28549 + #26038 |
+| *Proposed:* `#27311 OR (UMA AND scheduler) OR props.integrated` | llamacpp_release | MATCHED — #27311 parked, #29450 successor |
+| *Proposed:* `--cache-ram OR --fit OR GGML_CUDA_NO_VMM OR MALLOC_ARENA_MAX` | llamacpp_release | MATCHED — #29324, #29322, #27148, #27725, #29437, #29142, #25437 |
+| *Proposed:* `CLI flag removal OR arg parser OR GGML_CUDA_FA_QUANTS` | llamacpp_release | MATCHED (minor) — #29518, #27694, #29792 |
+
+#### Overall: **ACTION NEEDED**
+Driven by live health **DEGRADED** (27 OOM kills in 21 days, cumulative 69; `MemAvailable` 0 kB after one short request; 2.6 GB in zram), the `SM87 OR Jetson OR Tegra OR unified memory` ACTION trigger, and a P0 fix that has been unapplied for five recons while upstream evidence for it keeps growing.
+
+#### Recommendations
+**P0 — unchanged from Entry 042, still the whole story. User approval required to touch the device.**
+1. **Add `--cache-ram 0 --fit off --no-cache-idle-slots` to `start-qwen35-server.sh`** (back up first — `~/llm-server/backups/` pattern). Verify with the request-delta measurement (this recon: +211 MB for one 25-token request), not the startup banner. Validate ≥3 nights covering 01:00 and 05:00.
+2. **Then `MALLOC_ARENA_MAX=2`** in the unit, separately.
+3. **Fix the memory-watchdog gate** — `MemAvailable` sat at **0 kB** during this recon and it cannot fire because swap file = 0 B. Replace the AND-gate with `MemAvailable < floor` sustained N polls; verify by induced fire.
+4. **Identify the 01:00 / 05:00 consumer** (carried) — `ss -tnp | grep :8080` loop 00:55–01:15; then decide the undocumented `8080/tcp` LAN rule (carried, sixth recon — not re-checked this run).
+
+**P1 — after P0#1 holds ≥3 nights:**
+5. **MTP-on vs MTP-off memory A/B** — now with a named mechanism (#29509). If MTP-off growth is much lower, consider a checkpoint-count limit before giving up MTP.
+6. **Second-stage mitigation from 380334:** `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` + `LLAMA_ARG_FIT=off` env vars (AastaLLL's accepted answer, JP7 context) — trial only if kills continue after #1.
+7. **Rebuild stays BLOCKED** (#27282 stale). Rebuild checklist additions: #28549 MTP graph arena (measure), #26705 unpack is unconditional (free SM87 gain), #29499 post-listen hang on Orin NX (soak-test after cutover), `GGML_CUDA_CCCL_VERSION` rename (unused), prebuilt binaries are CUDA 13 (build from source). If #27282 auto-closes, re-evaluate whether to carry #27489 or the standalone variant patch locally.
+8. JetPack 6.2.3 via apt (carried) — currency/security only, after P0#1.
+
+**P2 — experiment slot, after memory is stable:**
+9. **NEW: `bartowski/FrogNano-4B-2609-GGUF` Q4_K_M (2.80 GB)** — loads on b9652 (expected), keeps MTP. Measure draft acceptance first (RL may have drifted from the MTP head). Value only if contact-center-lab or other consumers do coding-agent work; it is not a general assistant.
+10. Carried unchanged: MiniCPM5-2B (base model, no rebuild; drafter rebuild-gated — community Q8_0 drafter now exists); `unsloth/Qwen3.5-2B-MTP-GGUF`; `--spec-draft-n-max 2` A/B; 25W vs MAXN_SUPER; Octen-Embedding-4B.
+
+**Recon hygiene:**
+11. **The weekly cadence slipped** — 09-19 and 09-26 recons did not run (21-day gap). Check the schedule.
+12. **DROP 380334** (attribution now settled — see Check 4) and record AastaLLL = env vars, manuel58 = CLI flags, both JP7.
+13. **Downgrade #27311** from "most consequential open item" to watch (parked by ggerganov); add #29450, #29509, #29324, #27451 to the watch list.
+14. Add the four proposed triggers (third request for the first two).
+
+#### Proposed JETSON_BASELINE.md changes — **NOT APPLIED** (headless run, no user present; per run instructions)
+*(Entries 038–042 proposals were never applied; this supersedes them. File still reads 2026-07-16.)*
+- `Last updated:` / `Last recon:` 2026-07-16 → **2026-10-03**; `Last healthcheck:` → **2026-10-03 (DEGRADED — 27 OOM in 21 d, cumulative 69; MemAvailable 84.6 MB → 0 kB after one 25-token request; +211 MB/request; zram 2.69 GB; P0 `--cache-ram 0` unapplied)**.
+- `llamacpp_latest_seen:` b10054 → **b11379 (2026-10-03)**; running stays b9652 (~1,727 behind).
+- `jetpack_latest_orin_nano:` 7.2 → **7.2.1 (L4T 39.2.1, 2026-08-11)**; ADD `jetpack6_latest: 6.2.3 (L4T 36.5.2, apt, no NvMap/CMA content)`; `jetpack_next_expected:` → none announced; JP7 power-mode known issue 6236259 unfixed.
+- `models_last_checked_date` / `forum_last_checked_date:` → **2026-10-03**.
+- Current Config documentation additions (pre-existing state, carried from Entry 042): power_mode MAXN_SUPER; MemoryMax 6400 MiB; build flags; **rtc BROKEN — use `uptime -s`**; **cumulative_oom_count: 69**.
+- Recon Triggers: re-point the `GGML_CUDA_ENABLE_UNIFIED_MEMORY OR (NvMap AND mitigation)` row to `--cache-ram OR --fit OR GGML_CUDA_NO_VMM OR MALLOC_ARENA_MAX`; ADD `#27282 OR (MTP AND compute arena)` (ACTION), `#27311 OR #29450 OR (UMA AND scheduler) OR props.integrated` (INFO — downgraded, parked), `CLI flag removal OR arg parser OR GGML_CUDA_FA_QUANTS OR GGML_CUDA_CCCL_VERSION` (ACTION), `#29509 OR (draft KV AND checkpoint)` (INFO); keep `Qwen4 OR Qwen3.5 successor` but note Qwen 4 named with no small model.
+- Watch Items: ADD FrogNano-4B-2609; UPDATE OOM item (+27 in 21 d, zram 2.69 GB, MemAvailable 0); UPDATE rebuild blocker (stale label, #28549); UPDATE TensorRT-Edge-LLM → v0.11.0 (still JP7-gated, retired); RESOLVE 380334 attribution; plus all Entry 042 watch-item proposals.
+- **Throughput — DO NOT change `baseline_gen_tok_s`.** This recon's 6-token sample (16.8 tok/s) is too short to measure; Entry 042 Finding 4 still applies.
+
+---
