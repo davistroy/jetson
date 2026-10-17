@@ -4247,3 +4247,123 @@ Driven by live health (MemAvailable 30 MB at idle; the standard test request cra
 - **Throughput — no change** (no measurement possible this run).
 
 ---
+
+## Entry 045: Recon (2026-10-17) — ACTION NEEDED: 9 more global OOM kills in 7 days (cumulative 91), MemAvailable 390 MB at idle so the inference test was skipped, and upstream opened the first integrated-GPU CUDA pool fix (#30542)
+**Date:** 2026-10-17 14:05 EDT (2026-10-17 18:05 UTC)
+**Operator:** Claude Code (jetson-recon skill, headless scheduled run — no user present)
+**Status:** RECON — **no configuration changes made to the Jetson.** All commands read-only. **Check 5 command 8 (inference test) deliberately SKIPPED:** pre-test `MemAvailable` = 390 MB (< 500 MB floor), and the same test crashed `llama-server` at 30 MB in Entry 044. Running it could have crashed the service, which the run instructions forbid ("do not modify the running Jetson"). Baseline tracking values NOT updated (headless run; proposal below).
+
+Five checks (4 web-research agents, then 1 live SSH health check, per the trust boundary). Prior recon: Entry 044 (2026-10-10, 7 days ago).
+
+**Headline:**
+1. **+9 natural restarts in 7 days, all global OOM.** `NRestarts` 47 → **56**. Journal: 10-11 01:03 & 05:01; 10-12 01:01 & 05:13; 10-14 01:00; 10-15 01:00; 10-16 01:00; **10-17 01:06 & 01:14**. Kernel log since 10-11: 258 `oom-kill` victim lines, **all `global_oom` / `CONSTRAINT_NONE`, 0 `CONSTRAINT_MEMCG`**. **Cumulative OOM-class count (LAB_NOTEBOOK-only) = 82 + 9 = 91.** No CUDA-OOM core-dumps this week.
+2. **New clue on the 01:00 consumer:** at the 10-17 01:01 storm the allocating tasks sat in `cpuset=containerd.service` / `docker.service` / `packagekit.service` (`dockerd invoked oom-killer`). Top victims since 10-11: `python3` in `nvidia-pva-allowd` (64), **`tailscaled` (35)**, `systemd-resolve` (27), `systemd-udevd` (26). Docker/containerd activity at 01:00 is a lead for P0#4, not a conclusion.
+3. **`tailscaled` was OOM-killed ~35 times in a week.** Each restart touches the fTPM path (Entry 033 panic). Tailnet was up this run, but this raises the odds of the fTPM crash-loop recurring.
+4. **Upstream:** #30542 (open) caps the CUDA VMM pool reservation at 8 GB on `prop.integrated` GPUs and claims to fix our tracked #29142; #30514 (merged 10-15) stops copying full draft KV into every checkpoint (supersedes #29509); #30459 adds `--spec-draft-n-ubatch` (draft-path memory knob). ggerganov in #30577 acknowledges CUDA dynamic pools break the "worst case at startup" contract — the mechanism behind our growth.
+
+---
+
+#### JetPack / Firmware — **LOW (no version movement)**
+- Newest still **7.2.1 / L4T 39.2.1** and **6.2.3 / L4T 36.5.2** (both Aug 2026). No 36.5.3 / 39.2.2 / 6.2.4 / 7.2.2 / 7.3. [JetPack Archive](https://developer.nvidia.com/embedded/jetpack-archive), [Jetson Linux Archive](https://developer.nvidia.com/embedded/jetson-linux-archive).
+- JP7 power-mode defects (377003, 378184, 6236259): not re-verifiable (forum 403); no release exists that could fix them → treated as unfixed.
+- **Security (first run on NVIDIA GitHub `2026/CVE_index.csv`, per Entry 044 rec #11):** no Jetson/Orin/IGX bulletin Sep–Oct 2026. Only 2026 Jetson bulletin remains 5797 (patched in R36.5). Adjacent, not installed: TensorRT 5891 (CVE-2026-65122, 5.5), DeepStream 5886 (CVE-2026-65102, 7.8).
+- Nearest low-risk path unchanged: JP 6.2.3 (R36.5.2, OTA within 36.x) + nvgpu slab patch `a8144e4.diff`.
+
+#### llama.cpp Releases — **MEDIUM (first integrated-GPU pool PR; no SM87/Jetson merge)**
+- **Latest `b11714`** (2026-10-17 16:17Z); +98 releases since b11541, incl. **v0.7.0 (10-15, ≈b11669)**. Running **b9652**, ~2,060 behind.
+- **HIGH-ish (open):** **#30542** — limits CUDA reserved VA to 8 GB when `prop.integrated`; tested on an aarch64 iGPU with main + MTP draft + vision; claims to fix **#29142**; maintainer pushback, unmerged. #30327 (merged) CUDA-graph debug-log housekeeping only.
+- **MEDIUM:** **#30514** (merged) no full draft-KV copy per checkpoint for hybrid MTP (supersedes #29509 — need to confirm whether b9652 has this checkpoint path at all); **#30459** `--spec-draft-n-ubatch`; #30329 graph-realloc counters (arena-growth observability); #30453 subgraph arena realloc fix; prompt-cache fixes #30498/#30295/#30574/#30580; #30449 pinned host buffer cap. **#29353 fast GDN prefill excludes SM87** (CC 860/Ada/Blackwell only). #30517 MMVQ: no change for q4_K/q8_0.
+- **New issues:** #30577 memory grows every prefill with draft-mtp + `--spec-draft-n-max 3` (Vulkan; CUDA analogue acknowledged) — **this is our exact flag set**; #30137 ref-counted checkpoints; #30442 fit-params aware of draft args.
+- **Breaking:** port default 9931 (#30159, already logged; we pass `--port`); #30014 hides ggml internal symbols (matters only for carried out-of-tree patches — check #27489 against it); #30389 internal chat-format change. No CLI flag removals.
+- **Tracked:** #27282 still closed not_planned; #27489, #27311, #29450, #28058, #27451, #29142, #29499, #27725 no activity; #28056 still open (stale). #29509 closed → #30514. #29324 new comment with RSS for `--cache-ram 8192` vs `0`.
+
+#### Small Model Landscape — **MEDIUM (one watch item, not usable yet)**
+- **NVIDIA Nemotron-Labs-Dory1.0-4B (10-16):** 4B dense looped/latent-recurrent nGPT, SWA+full attention, 256K ctx, OpenMDW-1.1. vs Qwen3.5-4B at 1 loop: SciCode 27.3 vs 25.8, GPQA-D 69.2 vs 72.4, IFBench 74.3 vs 77.9. **Blocked:** only GGUF is Q5_K_M 3.67 GB (> ceiling); llama.cpp support is draft PR #30306 with a per-loop KV cache (memory scales with loops — bad on this box). Revisit when merged + Q4_K_M exists. [HF](https://huggingface.co/nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-GGUF)
+- No Qwen4 / Qwen3.5 successor in the 4B class. Embeddings: nothing new beats Qwen3-Embedding-4B.
+- qwen35-4B fine-tunes: h2oai/h2o-lightning-4b (decision-QA specialist, MTP head status unknown) — LOW. IBM Granite 4.2-3B (09-02) — LOW, non-Qwen baseline only.
+- **Reflection Beam:** 501B-A23B MoE — irrelevant; drop from watch.
+
+#### Jetson Forum / Community — **INFO**
+- [386113](https://forums.developer.nvidia.com/t/386113) (10-17) `cortexist/exllamav3` Jetson fork, Gemma 4 E4B EXL3 4.0bpw, claims 25+ tok/s decode with MTP on MAXN_SUPER (single unverified post; device ambiguous "Jetson Nano 8GB").
+- [385892](https://forums.developer.nvidia.com/t/385892) (10-14) R39.2.1 `nvmap_vma_close()` panic when another process reads nvmap mappings — **JP7 risk #4**.
+- [385290](https://forums.developer.nvidia.com/t/385290) NVIDIA now suspects Realtek `rtl8822ce`/`rtk_btusb` for the R39 memcg Oops (test request, no fix).
+- [384440](https://forums.developer.nvidia.com/t/384440) Ninfer + Strata merge (AGX Orin); NVIDIA restates TensorRT-Edge-LLM needs JP 7.2. TensorRT-Edge-LLM still v0.11.0. jetson-containers: trivial commits only.
+- 383773 slab-leak thread: no new content. No tailscale/fTPM or NvMap/CMA-workaround posts. r/LocalLLaMA unchecked (search returned nothing).
+
+#### Live Health — **DEGRADED**
+| Item | Value | vs Entry 044 / threshold |
+|---|---|---|
+| SSH path | tailnet OK | — |
+| `myscript` | active, PID 1389586, started **2026-10-17 01:14:44** (2nd kill of the 01:00 window) | — |
+| `uptime -s` | **2026-09-07 20:18:50** (39 d 17 h) | no reboot |
+| `NRestarts` | **56** | 47 → 56 = **+9 natural in 7 d** |
+| OOM type | 258 victim lines since 10-11, **100 % global**, 0 memcg | unchanged pattern |
+| `MemAvailable` | **390 MB** (`free`: used 6.3 Gi / 7.4 Gi) | 500 MB warn ❌ (Entry 044: 30 MB) |
+| cgroup | `MemoryCurrent` **6231 MB** of 6400 MiB max (**~458 MB headroom**) | Entry 044: 4279 MB — cgroup now near its own cap 13 h after restart |
+| swap | file 0 B; zram **~169 MB** (6 × 26–31 MB) | Entry 044: 2.93 GB — reset by the 01:14 restart |
+| Inference (cmd 8) | **SKIPPED** — MemAvailable < 500 MB (Entry 044 crash precedent) | no tok/s this run |
+| `/health` / Slots | `ok` / 1 (slots queried with Bearer key) | — |
+| Mode / build | `qwen35` / **b9652 `6eab47181`** | no drift |
+| Live flags | full MTP cmdline; **no `--cache-ram`, `--fit`, `--no-cache-idle-slots`** | **P0 fix unapplied — seventh recon** |
+| Disk | 17 % (131 G / 824 G) | OK |
+| Thermals | 49.2–51.2 °C | far below 75 °C |
+| nvgpu slab | `ls /sys/kernel/slab \| grep -c nvgpu-cache` = **215** | first data point (Entry 044 rec #7) |
+| Other | memory-watchdog, tailscaled, ufw-watchdog.timer active; ufw active; MAXN_SUPER; 4 drop-ins intact (cma-compact, crash-escalate, memory-limits, oom-protect) | — |
+
+Reading: memory shape shifted since Entry 044. Then: cgroup 4.3 GB with 2.9 GB in zram. Now: cgroup 6.2 GB (458 MB under MemoryMax) with zram near empty, 13 h after a restart. If the next growth step hits MemoryMax before the global pool runs out, the kill would become a cgroup kill (cleaner — only llama-server dies). Kills so far remain global.
+
+#### Cross-Correlated Findings
+1. **Our exact flag set is now an upstream bug report.** Check 5 (no `--cache-ram`, `--spec-draft-n-max 3`, cgroup at 6.2 GB 13 h post-restart) + Check 2's #30577 (memory grows each prefill with draft-mtp + `--spec-draft-n-max 3`) + ggerganov's pool comment. Same direction as P0#1/#2.
+2. **The 01:00 storm has a docker/containerd fingerprint.** Check 5's `cpuset=containerd.service/docker.service` allocators + `nvidia-pva-allowd` python3 as top victim. Combined with Entry 044's "the 01:00 window kills repeatedly in one night" — find what docker runs at 01:00 (P0#4).
+3. **OOM storms now threaten the tailnet.** 35 `tailscaled` kills (Check 5) × Entry 033 fTPM panic-on-start. Each restart is a dice roll on the crash-loop. Another reason P0 matters beyond llama-server.
+4. **Rebuild path got a second patch candidate.** #30542 (iGPU pool cap) + #27489 (closed blocker) could be carried locally; #30014 symbol-hiding may break an out-of-tree #27489 on a new base. JP7 now has four open risks (power mode, memcg Oops 385290, nvmap panic 385892, broken container ecosystem) — b9652/JP6 stays the platform.
+
+#### Triggered Alerts
+| Trigger | Source | Verdict |
+|---|---|---|
+| `(JetPack 7.2.1 OR 7.3 OR power mode fix OR TNSPEC) AND (Orin Nano OR Orin)` | jetpack | NOT MATCHED on new content |
+| `SM87 OR Jetson OR Tegra OR unified memory` | llamacpp_release | soft — #30542 (integrated GPU, not named Jetson) |
+| `GGML_CUDA_ENABLE_UNIFIED_MEMORY OR (NvMap AND mitigation)` | llamacpp_release | NOT MATCHED |
+| `Qwen4 OR Qwen3.5 successor` | huggingface | NOT MATCHED |
+| `llama.cpp AND (performance OR optimization) AND jetson` | forum | NOT MATCHED (386113 is EXL3) |
+| *Proposed:* `#27282 OR (MTP AND compute arena)` | llamacpp_release | NOT MATCHED |
+| *Proposed:* `#27311 OR #29450 OR (UMA AND scheduler) OR props.integrated` | llamacpp_release | **MATCHED** — #30542, #30685 |
+| *Proposed:* `--cache-ram OR --fit OR GGML_CUDA_NO_VMM OR MALLOC_ARENA_MAX` | llamacpp_release | **MATCHED** — #30498, #29324 comment |
+| *Proposed:* `#29509 OR (draft KV AND checkpoint)` | llamacpp_release | **MATCHED** — #30514 merged |
+| *Proposed:* `nvgpu AND (slab OR leak)` | forum | NOT MATCHED (no new content) |
+| *Proposed:* `cgroup AND Oops AND (R39 OR JetPack 7)` | forum | MATCHED (INFO) — 385290 Realtek test request |
+
+#### Overall: **ACTION NEEDED**
+Driven by live health (+9 global OOM kills in 7 days, cumulative 91; MemAvailable 390 MB at idle; cgroup 458 MB from its cap; 35 tailscaled kills). The P0 fix is now unapplied for seven recons. Upstream news is MEDIUM and does not change the P0 plan.
+
+#### Recommendations
+**P0 — user approval required to touch the device (unchanged order from Entry 044):**
+1. Add `--cache-ram 0 --fit off --no-cache-idle-slots` to `start-qwen35-server.sh` (backup first). Verify by request-delta. Validate ≥ 3 nights over 01:00 and 05:00.
+2. If it does not hold, drop MTP (restore `qwen35-pre-mtp-2026-06-16/`) or lower `--spec-draft-n-max` 3 → 2 (#30577 implicates draft-mtp + n-max 3).
+3. Fix the memory-watchdog gate (MemAvailable floor, no swap-file AND-gate).
+4. **Identify the 01:00 consumer — new lead:** check docker/containerd jobs at 01:00 (`docker ps -a`, container cron/healthchecks, `nvidia-pva-allowd`). Decide the `8080/tcp` LAN rule (carried).
+5. Reboot once after #1 lands (39 d uptime, 56 GPU-context cycles of nvgpu slab leak).
+
+**P1:**
+6. `MALLOC_ARENA_MAX=2` (carried).
+7. nvgpu slab: baseline 215 today — re-read next audit; if growing, plan JP 6.2.3 + `a8144e4.diff` or `slab_nomerge`.
+8. Rebuild decision: carry #27489 **and** #30542; confirm #30014 symbol hiding does not break them; add `--spec-draft-n-ubatch` (#30459) to the trial list; note #29353 GDN speedup skips SM87.
+9. tailscaled resilience: consider `OOMScoreAdjust` negative for `tailscaled` (so storms stop killing it) + the Entry 033 durable fTPM fix.
+
+**P2:** carried (FrogNano-4B-2609, MiniCPM5-2B, Qwen3.5-2B-MTP, 25W vs MAXN_SUPER). Watch: Dory1.0-4B (needs #30306 + Q4_K_M), EmbeddingGemma 2. Drop: Reflection Beam (501B).
+
+**Recon hygiene:**
+10. **Skill change (user decision):** gate Check 5 command 8 on `MemAvailable > 500 MB` (applied ad hoc this run) and add the `Authorization: Bearer` header to commands 8 and 10 (applied ad hoc to 10).
+11. Add the proposed triggers (fifth request for the first two).
+
+#### Proposed JETSON_BASELINE.md changes — **NOT APPLIED** (headless run; supersedes Entry 044's proposal)
+- `Last updated:` / `Last recon:` → **2026-10-17**; `Last healthcheck:` → **2026-10-17 (DEGRADED — +9 global OOM/7 d, cumulative 91; MemAvailable 390 MB; cgroup 6.2/6.4 GB; inference test skipped; P0 unapplied)**.
+- `llamacpp_latest_seen:` → **b11714 / v0.7.0 (2026-10-17)**; running b9652 (~2,060 behind).
+- `jetpack_latest_orin_nano:` → **7.2.1 (L4T 39.2.1)**; ADD `jetpack6_latest: 6.2.3 (L4T 36.5.2)`; `jetpack_next_expected:` none announced.
+- `models_last_checked_date` / `forum_last_checked_date:` → **2026-10-17**.
+- Current Config additions (carried): power_mode MAXN_SUPER; MemoryMax 6400 MiB; rtc BROKEN — use `uptime -s`; **cumulative_oom_count: 91**; nvgpu_slab_count 215 (2026-10-17).
+- Recon Triggers: Entry 044 proposal, plus ADD `#30542 OR #30577 OR spec-draft-n-ubatch` (ACTION, llamacpp_release) and `Dory AND (GGUF Q4 OR #30306 merged)` (INFO, huggingface).
+- Watch Items: UPDATE OOM item (+9/7 d, all global, docker/containerd fingerprint at 01:00); ADD tailscaled OOM kills (35/wk) vs fTPM; ADD #30542 / #30577; ADD Dory1.0-4B; ADD JP7 risk 385892; REMOVE Reflection Beam.
+- **Throughput — no change** (no measurement this run).
+
+---
