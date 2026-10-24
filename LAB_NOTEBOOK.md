@@ -4367,3 +4367,112 @@ Driven by live health (+9 global OOM kills in 7 days, cumulative 91; MemAvailabl
 - **Throughput — no change** (no measurement this run).
 
 ---
+
+## Entry 046: Recon (2026-10-24) — ACTION NEEDED: 15 more restarts in 7 days (cumulative 106), the worst week since tracking began; MemAvailable 0 kB at idle with zram 3.0 GB full; two CUDA-OOM aborts at 01:00; NVIDIA pushed back on the iGPU pool fix #30542
+**Date:** 2026-10-24 14:05 EDT (2026-10-24 18:05 UTC)
+**Operator:** Claude Code (jetson-recon skill, headless scheduled run — no user present)
+**Status:** RECON — **no configuration changes made to the Jetson.** All commands read-only. **Check 5 command 8 (inference test) deliberately SKIPPED:** `MemAvailable` read **0 kB** twice (< 500 MB floor; same gate as Entry 045, Entry 044 crash precedent). Extra read-only continuity reads (`NRestarts`, `journalctl -u myscript`, `journalctl -k` OOM counts) come from the baseline's OOM watch item, not from Checks 1-4. Baseline tracking values NOT updated (headless run; proposal below).
+
+Five checks (4 web-research agents, then 1 live SSH health check, per the trust boundary). Prior recon: Entry 045 (2026-10-17, 7 days ago).
+
+**Headline:**
+1. **+15 restarts in 7 days** (`NRestarts` 56 → **71**) — up from +9 last week. Journal confirms 14: **12 `oom-kill`** (10-18 05:03; 10-19 01:01 & 05:02; 10-20 01:01 & 01:05; 10-21 01:04 & 05:05; 10-22 01:00 & 01:04; 10-23 01:02 & 05:03; 10-24 01:01) and **2 CUDA-OOM core-dumps** (10-21 01:00:05, 10-23 01:00:08 — `NvMapMemHandleAlloc: error 0` → `CUDA error: out of memory` at `ggml-cuda.cu:103` → `ggml_abort`). One NRestarts increment has no matching journal line. **Cumulative OOM-class count = 91 + 15 = 106.**
+2. **Every night now has a 01:00 kill, and the 05:00 window fires on 4 of 7 nights.** 01:00 often kills twice (10-20, 10-21, 10-22, 10-23). The schedule-locked pattern from Entry 041 holds.
+3. **Kernel: 180 `oom-kill` victim lines since 10-17, 100 % `CONSTRAINT_NONE` (global), 0 memcg.** Top victims: `python3` 28, `systemd-udevd` 23, `haveged` 14, `systemd-resolve` 13, **`tailscaled` 12** (down from 35).
+4. **Idle memory is worse than ever:** 13 h after the 01:01 restart, `MemAvailable` = 0 kB, zram **~3.0 GB used of 3.8 GB** (6 × ~500 MB), cgroup `MemoryCurrent` 4083 MiB of 6400 MiB. The pressure sits outside the cgroup — consistent with NvMap memory invisible to kernel accounting.
+5. **Upstream:** NVIDIA engineer gaugarg-nv objected to #30542 (8 GB VA cap on `prop.integrated`) on 10-24 — proposes fall-back-to-legacy-pool or halve-and-retry instead. Merge unlikely as written. #28056 (iGPU KV cross-request contamination) closed by stale bot, unfixed.
+
+---
+
+#### JetPack / Firmware — **LOW (no version movement)**
+- Newest still **7.2.1 / L4T 39.2.1** and **6.2.3 / L4T 36.5.2** (both Aug 2026). No 36.5.3 / 39.2.2 / 6.2.4 / 7.2.2 / 7.3. [JetPack Archive](https://developer.nvidia.com/embedded/jetpack-archive), [Jetson Linux Archive](https://developer.nvidia.com/embedded/jetson-linux-archive).
+- Security: NVIDIA moved bulletins to [github.com/nvidia/product-security](https://github.com/nvidia/product-security) from 2026-10-01. Last commit 10-13; October bulletins cover Megatron, AIStore, NVSentinel, TensorRT, DALI, Warp, Isaac Lab, Model-Optimizer — **no Jetson**. Only 2026 Jetson bulletin remains 5797 (patched R36.5). GPU Display Driver 5861 (Sep) not scoped — likely dGPU only.
+- JP7 risks all still open: power-mode/TNSPEC (NVIDIA answer: reflash with `jetson-orin-nano-devkit-super` from x86 host; no software fix), 385290 memcg Oops (last post 10-12), 385892 `nvmap_vma_close` panic (internal review; reporter patch to `nvmap_fault.c`), container ecosystem (carried).
+
+#### llama.cpp Releases — **MEDIUM (no SM87/Jetson item; #30542 setback)**
+- **Latest `b11856`** (2026-10-24 15:06Z); **100 releases since b11714**; no new vX.Y.0 tag. Running **b9652**, ~2,200 behind.
+- Closest to HIGH: **#26771 (b11757)** clears CUDA graphs after legacy-pool flush — relevant only if we rebuild with `GGML_CUDA_NO_VMM`.
+- MEDIUM: #30573 `flash_attn_ext_vec` shared-memory race fix (batch-1 FA path — ours); #30572 FA bounds check; #30912 draft→target map stays on GPU; #27196 logprobs in speculative; #30666 SWA checkpoint invalidation fix; #30837 DP4A MMQ tile fix; #30213 spec rejection-sampling test.
+- **Tracked:** **#30542** open, `unstable` — 10-21 user reports auto-patch stable across ollama updates; **10-24 NVIDIA objection** (DGX Spark has no such limit). **#28056 closed not_planned (stale bot) 10-18.** #30306 (Dory) active, still draft. #30685 moved to draft. #29142 touched, no comments. #30577, #27282, #27489, #27311, #29450, #28058, #27451, #29499, #27725, #29324 — no change.
+- Breaking: none relevant. New `--connect` (#28277), `POST /tts` (#26603), realtime transcription (#30636). No flag removals.
+
+#### Small Model Landscape — **LOW**
+- **NVIDIA Nemotron-3.5-Bolt-E4B (10-23):** Gemma-4-E4B arch, 8B total / 4B effective dense, 64K ctx, OpenMDW-1.1; claims wins vs Qwen3.5-4B on instruction-following/roleplay (MultiChallenge 53.10 vs 51.76). llama.cpp-supported. **Does not fit:** bartowski Q4_K_M = 5.16 GB, IQ2_M = 3.14 GB. [HF](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16)
+- Dory1.0-4B: still Q5_K_M-only (3.67 GB); #30306 draft, CI failing, needs 2 approvals.
+- No Qwen release since 10-09; no Qwen4 / sub-4B successor. Embeddings: nothing beats Qwen3-Embedding-4B.
+
+#### Jetson Forum / Community — **INFO**
+- [386431](https://forums.developer.nvidia.com/t/386431) (10-21) R39.2.1 `rtl8852ce` Realtek Wi-Fi panic → watchdog reboot loop on AGX Thor, even on wired Ethernet. Supports the Realtek suspicion in 385290 — **JP7 risk #5**.
+- [386704](https://forums.developer.nvidia.com/t/386704) (10-23) confirms JP 6.2.3 is an APT upgrade over 6.2.2 (minor bug/security, same libs). No NvMap content found.
+- [383847](https://forums.developer.nvidia.com/t/383847) (10-18→20) JP7.2 Orin uses SBSA driver; CUDA 13.2 libs under `targets/sbsa-linux/lib` — JP7 rebuild prep.
+- Tracked 383773, 385892, 385290, 384440: no new posts. 386113 (exllamav3): NVIDIA thanks only. jetson-containers: no commits since 10-12. TensorRT-Edge-LLM: still v0.11.0.
+- Tailscale background: 1.92.5+ disables TPM state encryption by default — check whether our node enables it explicitly (relates to Entry 033 fTPM panic).
+- Forum category URLs now 301 to `/c/robotics-edge-computing/jetson-systems/...` — update the skill's check4_source.
+
+#### Live Health — **DEGRADED**
+| Item | Value | vs Entry 045 / threshold |
+|---|---|---|
+| SSH path | tailnet OK | — |
+| `myscript` | active, PID 1633732, started **2026-10-24 01:01:05 EDT** | — |
+| `uptime -s` | 2026-09-07 20:18:50 (46 d 17 h) | no reboot |
+| `NRestarts` | **71** | 56 → 71 = **+15 in 7 d** (Entry 045: +9) |
+| Restart causes | 12 `oom-kill`, **2 CUDA-OOM aborts** (10-21, 10-23 at 01:00), 1 unmatched | CUDA aborts return (none in Entry 045 week) |
+| Kernel OOM | 180 victim lines since 10-17, **100 % global** | unchanged pattern |
+| `MemAvailable` | **0 kB** (`free` avail col 252 Mi; used 6.9 / 7.4 Gi) | 500 MB warn ❌ (Entry 045: 390 MB) |
+| cgroup | `MemoryCurrent` 4083 MiB of 6400 MiB | Entry 045: 6231 MiB |
+| swap | file 0 B; **zram ~3.0 GB of 3.8 GB** (6 × 485–518 MB) | Entry 045: ~169 MB |
+| Inference (cmd 8) | **SKIPPED** — MemAvailable 0 kB | no tok/s this run |
+| `/health` / Slots | `ok` / 1 (Bearer key) | — |
+| Mode / build | `qwen35` / **b9652 `6eab47181`** | no drift |
+| Live flags | full MTP cmdline, `--spec-draft-n-max 3`; **no `--cache-ram`, `--fit`, `--no-cache-idle-slots`** | **P0 fix unapplied — eighth recon** |
+| Disk | 17 % (131 G / 824 G) | OK |
+| Thermals | 49.2–51.6 °C | far below 75 °C |
+
+Reading: memory shape flipped back to the Entry 044 shape — cgroup moderate (4.1 GB), zram nearly full (3.0 GB), host MemAvailable at zero. The difference between the 4.1 GB cgroup and the ~7 GB used host-wide is outside llama-server's cgroup accounting. Both CUDA aborts hit inside the first seconds of 01:00, before the kernel OOM-killer acted — the 01:00 consumer takes memory faster than llama-server can allocate its next CUDA buffer.
+
+#### Cross-Correlated Findings
+1. **The P0 rebuild path lost its best upstream patch.** Check 2 (NVIDIA objection on #30542; #28056 closed stale) + Check 5 (two `NvMapMemHandleAlloc` CUDA aborts). Upstream will not fix iGPU pool growth soon. Config-side mitigation (P0#1/#2) is the only near-term lever; #26771 makes a `GGML_CUDA_NO_VMM` rebuild slightly more viable later.
+2. **The 01:00 consumer is the trigger, every night.** Check 5: 7/7 nights hit at 01:00–01:05, plus 4 nights at 05:00. Entry 045 fingerprinted docker/containerd. This week's CUDA aborts in the first 5 s of 01:00 show an external allocation spike. Finding that job (P0#4) may stop most kills without touching llama-server.
+3. **JP7 stays blocked; JP 6.2.3 is the low-risk step.** Check 1 (no new release) + Check 4 (386431 Realtek panic = risk #5; 386704 confirms 6.2.3 is an APT upgrade). 6.2.3 + nvgpu slab patch remains the nearest platform move.
+
+#### Triggered Alerts
+| Trigger | Source | Verdict |
+|---|---|---|
+| `(JetPack 7.2.1 OR 7.3 OR power mode fix OR TNSPEC) AND (Orin Nano OR Orin)` | jetpack | NOT MATCHED on new content |
+| `SM87 OR Jetson OR Tegra OR unified memory` | llamacpp_release | NOT MATCHED |
+| `GGML_CUDA_ENABLE_UNIFIED_MEMORY OR (NvMap AND mitigation)` | llamacpp_release | NOT MATCHED |
+| `Qwen4 OR Qwen3.5 successor` | huggingface | NOT MATCHED |
+| `llama.cpp AND (performance OR optimization) AND jetson` | forum | NOT MATCHED |
+| *Proposed:* `#30542 OR #30577 OR spec-draft-n-ubatch` | llamacpp_release | **MATCHED** — #30542 NVIDIA review |
+| *Proposed:* `--cache-ram OR --fit OR GGML_CUDA_NO_VMM OR MALLOC_ARENA_MAX` | llamacpp_release | weak — #26771 (legacy pool) |
+| *Proposed:* `Dory AND (GGUF Q4 OR #30306 merged)` | huggingface | NOT MATCHED |
+| *Proposed:* `nvgpu AND (slab OR leak)` / `cgroup AND Oops AND (R39 OR JetPack 7)` | forum | NOT MATCHED |
+
+#### Overall: **ACTION NEEDED**
+Driven by live health: +15 restarts in 7 days (cumulative 106), every night killed at 01:00, MemAvailable 0 kB at idle, zram 3.0 GB, two CUDA-OOM aborts. External news is LOW/MEDIUM and does not change the plan. The P0 fix is unapplied for eight recons.
+
+#### Recommendations
+**P0 — user approval required to touch the device (order unchanged):**
+1. Add `--cache-ram 0 --fit off --no-cache-idle-slots` to `start-qwen35-server.sh` (backup first). Validate ≥ 3 nights over 01:00 and 05:00.
+2. If it does not hold: drop MTP (restore `qwen35-pre-mtp-2026-06-16/`) or `--spec-draft-n-max` 3 → 2.
+3. Fix the memory-watchdog gate (MemAvailable floor, no swap-file AND-gate).
+4. **Identify the 01:00 / 05:00 consumer** (docker/containerd jobs, `nvidia-pva-allowd` python3). This is now the highest-leverage item: 7/7 nights.
+5. Reboot once after #1 lands (46 d uptime, 71 GPU-context cycles).
+
+**P1:** `MALLOC_ARENA_MAX=2`; nvgpu slab re-read (215 on 10-17); rebuild plan — #30542 is now unlikely to merge, watch for NVIDIA's legacy-pool-fallback variant, and note #26771 for a `GGML_CUDA_NO_VMM` build; `tailscaled` negative `OOMScoreAdjust` + check tailscale TPM state-sealing setting (Entry 033); consider JP 6.2.3 APT upgrade + `a8144e4.diff`.
+
+**P2:** carried (FrogNano-4B-2609, MiniCPM5-2B, Qwen3.5-2B-MTP, 25W vs MAXN_SUPER). Watch: Dory1.0-4B. Skip: Nemotron-3.5-Bolt-E4B (5.16 GB Q4_K_M).
+
+**Recon hygiene:** (a) Skill change: gate cmd 8 on MemAvailable > 500 MB and add the Bearer header to cmds 8 and 10 (applied ad hoc again); add `NRestarts` + journal OOM count as fixed allowlist commands. (b) Update check4_source to the new forum path. (c) Add the proposed triggers (sixth request).
+
+#### Proposed JETSON_BASELINE.md changes — **NOT APPLIED** (headless run; supersedes Entry 045's proposal)
+- `Last updated:` / `Last recon:` → **2026-10-24**; `Last healthcheck:` → **2026-10-24 (DEGRADED — +15 restarts/7 d incl. 2 CUDA-OOM aborts, cumulative 106; MemAvailable 0 kB; zram 3.0 GB; inference test skipped; P0 unapplied)**.
+- `llamacpp_latest_seen:` → **b11856 (2026-10-24)**; running b9652 (~2,200 behind).
+- `jetpack_latest_orin_nano:` → **7.2.1 (L4T 39.2.1)**; ADD `jetpack6_latest: 6.2.3 (L4T 36.5.2, APT upgrade)`; `jetpack_next_expected:` none announced.
+- `models_last_checked_date` / `forum_last_checked_date:` → **2026-10-24**.
+- Current Config additions (carried): power_mode MAXN_SUPER; MemoryMax 6400 MiB; rtc BROKEN — use `uptime -s`; **cumulative_oom_count: 106**; nvgpu_slab_count 215 (2026-10-17).
+- Recon Triggers: Entry 044/045 proposals (unchanged).
+- Watch Items: UPDATE OOM item (+15/7 d, 7/7 nights at 01:00, 2 CUDA aborts); UPDATE #30542 (NVIDIA objection — watch for legacy-pool-fallback variant); ADD #28056 closed stale; ADD JP7 risk 386431 (Realtek rtl8852ce); ADD JP 6.2.3 = APT upgrade; ADD Bolt-E4B as SKIP (too large).
+- **Throughput — no change** (no measurement this run).
+
+---
