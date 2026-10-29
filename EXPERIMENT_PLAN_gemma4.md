@@ -73,7 +73,7 @@ Two NVIDIA forum threads document Gemma experiences on Orin Nano Super:
 
 ### P1: llama-server Infinite Repetition Bug — RESOLVED ✓
 
-**GitHub issue:** [llama.cpp #21365](https://github.com/ggml-org/llama.cpp/issues/21365) (open but resolved in practice)
+**GitHub issue:** [llama.cpp #21365](https://github.com/ggml-org/llama.cpp/issues/21365) (formally closed 2026-07-23)
 
 **RESOLVED 2026-04-09:** PR [#21418](https://github.com/ggml-org/llama.cpp/pull/21418) (merged 2026-04-04) introduces a dedicated Gemma 4 PEG parser and adds `<|tool_response>` as an EOG token, eliminating the infinite repetition in llama-server. Multiple users confirmed the fix. Included in build **b8721** (released 2026-04-09).
 
@@ -86,7 +86,7 @@ Two NVIDIA forum threads document Gemma experiences on Orin Nano Super:
 | [#21375](https://github.com/ggml-org/llama.cpp/issues/21375) | Infinite loop in tool-call parser | **CLOSED** (not planned, 2026-05-29); PR [#21760](https://github.com/ggml-org/llama.cpp/pull/21760) (merged 2026-04-13) had addressed main edge cases |
 | [#21321](https://github.com/ggml-org/llama.cpp/issues/21321) | Generates `<unused24>` tokens | **CLOSED** |
 
-**Action:** Proceed to P2. Target build **b11177** (released 2026-09-25; latest as of 2026-09-25) or later.
+**Action:** Proceed to P2. Target build **v0.8.0** (released 2026-10-28; latest as of 2026-10-29) or later.
 
 ### P2: Rebuild llama.cpp
 
